@@ -7,13 +7,12 @@ dependency-correct segments. The orchestrator ([agents/orchestrator.md](agents/o
 execution: for each segment it runs the `issue → review → implement → review → commit` pipeline and
 appends a one-line entry to [BUILDLOG.md](BUILDLOG.md) on each commit.
 
-<!-- CUSTOMIZE: replace the segment below with your own. Define the North Star first, then sequence
-     features so each segment only depends on ones above it. One segment = one coherent unit of work. -->
-
 ## Segment order
 
-1. **Segment 1 — define your North Star and first feature.** State what this project builds and for
-   whom, then file the first feature issue (`issues/NNNN-*.md`) through the pipeline. See
-   `issues/0001-example-feature.md` for the issue format.
-
-(Add further segments here as the build sequence becomes clear.)
+1. **0001 North Star.** Write the SteamGate North Star, product outcomes, and known gaps into CLAUDE.md, DESIGN.md, and PLAN.md.
+2. **0002 Service skeleton.** Windows service, protected settings folder (ProgramData, admin-only writes), install and uninstall, restart after being killed, retire the Blender example, and rewrite DESIGN.md's Python-only test, eval, and CI rules and the README's opening page for a C# / .NET build on GitHub's Windows build machines.
+3. **0003 Steam game detection.**
+4. **0004 Time accounting.**
+5. **0005 Enforcement.**
+6. **0006 The lock.** Cooldown rules, including making uninstall and disable wait the cooldown.
+7. **0007 Status screen.** Its look is approved by Trevor on a preview before it is built.

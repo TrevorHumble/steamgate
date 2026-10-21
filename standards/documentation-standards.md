@@ -14,7 +14,7 @@ counts. They must not depend on a reader agent's nondeterministic answer to a
 question like "can an agent figure out X from this?" Prose criteria that rely on
 comprehension cannot be re-checked deterministically.
 
-Lesson from issue #0001: every AC that said "an agent can answer X" was unfalsifiable.
+Lesson from the orchestrator template's first issue: every AC that said "an agent can answer X" was unfalsifiable.
 Rewrite as: "the file contains the phrase `X`" or "section Y exists with subsections
 A, B, C."
 

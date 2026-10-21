@@ -2,8 +2,44 @@
 
 ## Prime directive
 
-<!-- CUSTOMIZE: state your domain here — what this project builds and who the product owner is. -->
+This project is SteamGate. Its owner is Trevor, a functional tech who does not read code. It builds a Windows service in C# / .NET that holds his Steam gaming to time limits he sets, using the pipeline below. The spec is in `## SteamGate product spec`.
+
 The product owner sets vision and tests outcomes. They do not necessarily write code. No human reads code in the critical path — the adversarial review agents are the code gate for everything that lands, so the owner is out of the code-review loop. They remain the final eye on the result and intent, and the director: their judgment gates the visible and qualitative outcomes a machine can't reliably judge.
+
+## SteamGate product spec
+
+The `CLAUDE.md` sections `### Product outcomes` and `### Known gaps (documented, not solved)` are the short form of this section.
+
+The approved text is pinned, unedited, in docs/approved-spec-2026-10-20.md. If this section and that file disagree, that file governs and this section is corrected to match.
+
+Approval source: Trevor said go on 2026-10-20 (session local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900) to the plan he pasted plus the four fixes the assistant proposed, then asked for "a max cooldown so you don't accidentally set it for like a year" and for Blender, OBS, and Wallpaper Engine on the not-counted list. Two values were added in the build brief afterward and were not shown to him before his go: "Steamworks Shared" in the pre-filled list, and the number 7 for the cooldown maximum (he asked for a maximum without a number). Trevor approved both later on 2026-10-20, passed on from the main session (local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900), in his words: "Both of those sound good to me."
+
+Issue lines 1 to 6 below are repo issues 0002 to 0007; 0002 creates the protected settings folder from line 5 because the service needs it to start, and also retires the Blender example and rewrites the template's test, eval, CI, and README text, and 0006 builds the cooldown rules (an order chosen after approval, not part of the approved spec).
+
+Issues, in order:
+
+1. Service skeleton, install/uninstall, auto-restart recovery
+2. Steam game detection (read libraryfolders.vdf + appmanifest files, match running programs to steamapps\common folders, exclude the not-counted list)
+3. Time accounting (night ends 4 AM, weeknight/weekend nights, weekly cap resets Monday 4 AM, saved to disk every minute)
+4. Enforcement (warnings at 10/5/1 min with sound, polite close then force, close any game started after the limit)
+5. The lock (protected settings folder, cooldown rules below)
+6. Status screen (see where you stand, request changes, edit the not-counted list)
+
+SPEC
+
+- Windows service in C# / .NET. No window, tray icon, or Alt-Tab entry. Windows restarts it if killed. Settings and tally in a protected system folder (ProgramData, admin-only writes).
+- A small invisible helper runs in the user's own login and shows the warnings and does the polite close, because services can't draw on the screen or talk to game windows. The service does the counting and the force-close. Each warning plays a sound too, since Windows mutes notifications during full-screen games.
+- Counts wall-clock minutes while at least one Steam game is open; two games at once don't double-count.
+- Defaults: weeknight 90 min; weekend night 3 h; weekend nights = Friday + Saturday; weekly cap 10 h; cooldown 48 h.
+- Cooldown rules: any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a program to the not-counted list, disable, uninstall) waits the full cooldown. Any change that tightens applies right away. The cooldown has a hard maximum of 7 days, so it can't be set to a year by mistake.
+- Not-counted list (whitelist), pre-filled with Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared. Editable from the status screen; adding waits the cooldown, removing applies now.
+- Known gaps, documented, not solved: Trevor is the admin, so a deliberate admin teardown can remove it; changing the system clock could fool the counter. Never hide from antivirus or Windows or block their removal.
+- Trevor's account is an admin, so Task Manager CAN kill the service. Never claim it can't; Windows restarts it and the tally survives.
+- Current Steam library: Arc Raiders, Cyberpunk 2077, Dying Light The Beast, Overwatch, Red Dead Redemption 2, Viewfinder (C:\Program Files (x86)\Steam).
+- The .NET SDK was not found on this PC. CI can build on GitHub's Windows runners; ask Trevor before installing the SDK locally.
+- The status screen is visual: Trevor approves its look on a preview before it is built.
+
+The Repo structure, Test strength, Governance: in-license constraint (its tests paragraph), CI, Evals, and Testing sections below still describe the template's Python and Blender example; issue 0002 rewrites them for the C# / .NET build. The Blender lines in the Issue and Implementation lifecycles describe the template's own machinery and stay.
 
 ## What the system is
 
@@ -295,8 +331,8 @@ The following have not yet shipped. Each becomes a future issue when the system 
 
 - Documentation-enforcement agent — checks that CLAUDE.md and README are updated when required triggers fire.
 - Comment-review agent — enforces the why-not-what, one-line, anti-slop comment standard.
-- Blender add-on development standards — a `standards/` document defining bpy patterns, Eevee Next conventions, and API version constraints.
 - Resilience and reliability testing — testing the orchestrator's behavior under failed tool calls, bad reviewer outputs, and looping conditions.
+- C# / .NET build, test, eval, and CI rules on GitHub's Windows build machines (issue 0002).
 
 ### Provided by the template
 
@@ -324,9 +360,9 @@ The system runs inside two entitlements only: a `GitHub Pro` license and an `Ant
 
 The only sanctioned model access is the Anthropic subscription. No non-Anthropic model key (OpenAI, Gemini, etc.) and no hosted eval/judge service (`Braintrust`, `LangSmith`, `OpenAI Evals`, Langfuse, Weights & Biases).
 
-<!-- CUSTOMIZE: the example add-ons exercise local Blender automation; adapt or remove this paragraph
-     for your domain. The principle — local-only, no external/paid tooling — holds either way. -->
 The included Blender example uses local automation only: allowed calls include `execute_blender_code`, `get_scene_info`, `get_viewport_screenshot`, and the local Blender RAG. The external asset generators in the Blender MCP toolset (Poly Haven, Sketchfab, Hyper3D, Hunyuan, Rodin) are prohibited in any add-on or eval, since they would route outside the two sanctioned entitlements.
+
+Under the in-license constraint above, SteamGate uses no Steam Web API and no service that needs a key or payment. It detects running games from local Steam files and the local list of running programs (see `## SteamGate product spec`); issue 0003 builds that detection.
 
 CI runs on GitHub Actions under `GitHub Pro` on the public repo (unlimited minutes); any runtime the tests need (e.g. Blender for the example add-ons) is installed into the runner from a free/open-source source.
 
@@ -401,3 +437,5 @@ it is a log, not the task tracker.
 **CLAUDE.md** is the distilled operating rules the orchestrator loads at the start of each session. It is derived from DESIGN.md. It contains what the orchestrator needs to act correctly — not the full rationale, just the rules. It is kept short enough to load every time.
 
 **README.md** is the short human-facing front door. It orients a newcomer, links to DESIGN.md for depth, and links to CLAUDE.md for operating rules. It does not duplicate content from either.
+
+**docs/approved-spec-2026-10-20.md** is Trevor's approved SteamGate spec, pinned unedited. On any conflict about the product spec, it governs DESIGN.md "## SteamGate product spec", which governs CLAUDE.md "### Product outcomes".

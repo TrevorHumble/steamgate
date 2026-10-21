@@ -16,7 +16,7 @@ Written as Given/When/Then criteria testable by an agent. Each criterion must be
 
 **A ready-tier issue's criteria must include at least one that asserts a behavioral output value** (input → expected output), so the criteria can catch a wrong implementation — an issue whose criteria are *all* presence/structural checks cannot, since a broken implementation can satisfy every "file contains X" check. **Documentation-only issues** (those whose `Touches` paths are all docs — `.md` or under `docs/`) are exempt and may use purely string/structural criteria. (Backlog-tier issues capture intent before implementation and need only one deterministic criterion — see Issue tiers.)
 
-For a documentation issue, acceptance criteria must reduce to literal string or structural checks (no criterion of the form "an agent can understand X" — that is unfalsifiable). Lesson from issue #0001: every AC that said "an agent can answer X" was unfalsifiable; rewrite as "the file contains the phrase `X`".
+For a documentation issue, acceptance criteria must reduce to literal string or structural checks (no criterion of the form "an agent can understand X", which is unfalsifiable). Lesson from the orchestrator template's first issue: every AC that said "an agent can answer X" was unfalsifiable; rewrite as "the file contains the phrase `X`".
 
 ---
 
