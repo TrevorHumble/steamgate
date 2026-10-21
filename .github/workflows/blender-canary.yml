@@ -1,0 +1,28 @@
+name: Blender URL canary
+
+# Early-warning for a real, dated risk: ci.yml pins a single Blender download URL.
+# Blender prunes old point releases over time; when this URL 404s, the main CI test
+# job goes red with a buried error. This canary checks the URL on its own schedule
+# and fails LOUDLY (a notification) the moment it breaks -- so you fix the pin before
+# it surprises a feature build. It's separate from CI: it never affects your build.
+# Only relevant while you keep the bundled Blender example; harmless otherwise.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC
+  workflow_dispatch:        # run on demand from the Actions tab
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pinned Blender download is reachable
+        run: |
+          url="https://download.blender.org/release/Blender5.1/blender-5.1.0-linux-x64.tar.xz"
+          code=$(curl -sSL -o /dev/null -w '%{http_code}' --head "$url" || echo 000)
+          echo "HTTP $code  $url"
+          if [ "$code" != "200" ]; then
+            echo "::error::Pinned Blender download is unreachable (HTTP $code). Update the URL in .github/workflows/ci.yml to a live release before it red-fails the test job."
+            exit 1
+          fi
+          echo "OK — Blender download is reachable."

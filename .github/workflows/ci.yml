@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# The example-specific steps below are guarded with
+#   if: ${{ hashFiles('addons/*.py') != '' }}
+# so that when you DELETE the bundled example (addons/ + tests/ + evals/) to start
+# your own project, CI stays GREEN instead of red-failing on missing paths. The
+# commit-gate integrity check always runs. When you add your own code, add your
+# own test/lint steps here (or have the orchestrator do it).
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit-gate integrity (server-side backstop)
+        run: |
+          test -f .githooks/pre-commit || { echo "commit gate missing: .githooks/pre-commit"; exit 1; }
+          git check-attr text eol -- .githooks/pre-commit | grep -q 'eol: lf' \
+            || { echo "commit gate not LF-protected (autocrlf could corrupt it)"; exit 1; }
+          head -1 .githooks/pre-commit | grep -q '^#!/bin/sh' \
+            || { echo "commit gate shebang corrupt"; exit 1; }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lint + security tools
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: pip install ruff bandit
+
+      - name: Ruff (Pyflakes + bugbear) on example add-ons
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: ruff check --select F,B addons/
+
+      - name: Bandit security scan on example add-ons
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: bandit -r addons/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pure geometry test (bpy-free)
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: python tests/run_pure.py
+
+      - name: Pure phyllotaxis test (bpy-free)
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: python tests/run_phyllotaxis_pure.py
+
+      - name: Mutation/tamper gate
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: python tests/mutation_harness.py
+
+      - name: Install Blender runtime deps
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: sudo apt-get update && sudo apt-get install -y libxrender1 libxi6 libxxf86vm1 libxfixes3 libxkbcommon0 libsm6 libgl1 libegl1 libgles2 libgl1-mesa-dri xvfb
+
+      - name: Cache Blender 5.1
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: blender
+          key: blender-5.1.0-linux-x64
+
+      - name: Download Blender 5.1
+        if: ${{ hashFiles('addons/*.py') != '' && steps.cache-blender.outputs.cache-hit != 'true' }}
+        run: |
+          curl -sSL https://download.blender.org/release/Blender5.1/blender-5.1.0-linux-x64.tar.xz -o blender.tar.xz
+          mkdir -p blender
+          tar -xf blender.tar.xz -C blender --strip-components=1
+
+      - name: Verify Blender
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: ./blender/blender --version
+
+      - name: Headless operator test
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: ./blender/blender --background --factory-startup --python-exit-code 1 --python tests/run_headless.py
+
+      - name: Phyllotaxis headless operator test
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: ./blender/blender --background --factory-startup --python-exit-code 1 --python tests/run_phyllotaxis_headless.py
+
+      - name: Eval suite
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        run: ./blender/blender --background --factory-startup --python-exit-code 1 --python evals/run_evals.py
+
+      # Visual-confirmation previews — render each add-on's output to a PNG so the
+      # owner (final eye, can't read code) can download and SEE the result. This is
+      # the HUMAN visual gate, NOT a correctness gate: the geometry is already
+      # proven by the tests/evals above. continue-on-error keeps a render hiccup
+      # from red-failing the build.
+      - name: Render add-on previews
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        continue-on-error: true
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          xvfb-run -a ./blender/blender --background --factory-startup --python-exit-code 1 --python tools/render_preview.py -- bevel_bezier_corners
+          xvfb-run -a ./blender/blender --background --factory-startup --python-exit-code 1 --python tools/render_preview.py -- phyllotaxis
+
+      - name: Upload add-on previews
+        if: ${{ hashFiles('addons/*.py') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: addon-previews
+          path: renders/*.png
+          if-no-files-found: warn

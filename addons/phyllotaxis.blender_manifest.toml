@@ -1,0 +1,23 @@
+# Blender Extensions manifest for the Phyllotaxis add-on.
+# Pairs with phyllotaxis.py (which keeps its legacy bl_info as a fallback).
+# To package: zip this file together with phyllotaxis.py renamed to
+# __init__.py, then `blender --command extension validate`.
+schema_version = "1.0.0"
+
+id = "phyllotaxis"
+version = "1.0.0"
+name = "Phyllotaxis"
+tagline = "Generate a golden-angle phyllotaxis point cloud mesh"
+maintainer = "blender-orchestrator"
+type = "add-on"
+
+# bl_info targets Blender 5.1, but the Extensions platform floor is 4.2.
+blender_version_min = "4.2.0"
+
+# bl_info declares no license; GPL-3.0-or-later is the required license for
+# add-ons on the Blender Extensions Platform.
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+tags = ["Mesh"]
