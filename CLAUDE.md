@@ -41,7 +41,7 @@ On conflict, correct this section to match DESIGN.md (DESIGN.md "Where the docum
 
 On a freshly-cloned project, before the first feature:
 1. **North Star**: if the `<!-- CUSTOMIZE -->` markers above are unfilled, help the owner write the North Star (one sentence: who it's for and what it builds), then carry it into `DESIGN.md` and `PLAN.md` (their CUSTOMIZE markers). (Done for SteamGate in issue 0001; the remaining DESIGN.md Setup items marker is the license choice, not the North Star.)
-2. **The example** — `addons/`, `tests/`, `evals/` ship a worked Blender example so CI is green on clone. When the owner's real work begins (especially in another domain), retire it with `powershell -File tools/retire-example.ps1` (preview; add `-Yes` to remove + stage). CI auto-skips the example steps once it's gone (`.github/workflows/ci.yml` guards them with `hashFiles('addons/*.py')`); you then add the project's own test/lint steps.
+2. **The example**: the template's Blender example was retired in issue 0002. CI now runs the .NET build, the xUnit tests, Stryker.NET mutation tests, and the install test on a Windows runner (`.github/workflows/ci.yml`).
 3. **Confirm enforcement** — run `powershell -File tools/check-gate.ps1` before the first commit (the gate self-arms when the folder is opened in Claude Code, but verify rather than assume).
 
 Then proceed through the normal Pipeline below.
@@ -50,10 +50,10 @@ Then proceed through the normal Pipeline below.
 
 ## Pipeline
 
-Every unit of work — add-on features, skill updates, agent changes, documentation gaps — flows through this sequence:
+Every unit of work (product features, skill updates, agent changes, documentation gaps) flows through this sequence:
 
 1. `issue` — orchestrator drafts issue in `issues/NNNN-*.md`
-2. `review` — spawn adversarial reviewer-issue; FAIL is fixed, never overridden
+2. `review`: spawn adversarial reviewer-issue; FAIL is fixed, never overridden. If the issue builds visible output whose look the owner approves, nothing is researched or implemented until the issue records that approval (orchestrator step 2a).
 3. `implement` — spawn implementation agent with full handoff (issue + prior art); it produces the diff, no PR — the orchestrator is the sole committer
 4. `review` — spawn adversarial reviewer-pr against the diff; FAIL is fixed, never overridden
 5. `commit` — on PASS, **record the reviewers' verdict** (`powershell -File tools/review_verdict.ps1 -Verdict PASS -Reviewers ...`), then commit directly to `main`. The `pre-commit` gate (`.githooks/pre-commit`) mechanically blocks any commit whose staged tree has no matching PASS verdict — recording the real verdict is a required step, not optional, and forging one is never the fix. Append a one-line entry to `BUILDLOG.md`. After every push, watch CI to green and never knowingly leave `main` red — a red `main` is fixed or reverted before proceeding (see `agents/orchestrator.md`).
@@ -133,7 +133,7 @@ Full conventions (the authoritative banned-word list, naming, anti-slop) live in
 - **Anti-slop:** no filler adjectives, no throat-clearing openers (banned list in the standard).
 - **Shell:** PowerShell. Use `$env:VAR`, `$null`, backtick continuation. No `&&`/`||`.
 - **GitHub CLI:** `C:\Program Files\GitHub CLI\gh.exe` — not on PATH; always use the full path.
-- **.NET SDK:** it was not found on Trevor's PC on 2026-10-20. Build on GitHub's Windows build machines; ask Trevor before installing the SDK locally.
+- **.NET SDK:** 10.0.402 is installed on Trevor's PC (approved 2026-10-20). CI on GitHub's Windows build machines is the proof of record; never install another SDK without asking Trevor.
 - **Update this file** after every issue created and after every commit to `main`. Stale content degrades every subsequent decision.
 - **Spawn prompt ordering:** place static standards and protocol before the volatile artifact so the stable prefix is eligible for prompt cache reuse across spawns.
 - **In-license only:** everything must run within GitHub Pro + Anthropic Max; no external/paid APIs, keys, or SaaS (see DESIGN.md). **First-party GitHub security features — Secret Scanning + push protection, Dependabot, CodeQL — are in-license and are REQUIRED, not optional** (they are GitHub-native, free on public repos; "no SaaS" never meant excluding them — that misreading left the repo with no deterministic security layer, per the 2026-06-16 round-2 review).

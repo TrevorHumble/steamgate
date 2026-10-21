@@ -39,7 +39,22 @@ SPEC
 - The .NET SDK was not found on this PC. CI can build on GitHub's Windows runners; ask Trevor before installing the SDK locally.
 - The status screen is visual: Trevor approves its look on a preview before it is built.
 
-The Repo structure, Test strength, Governance: in-license constraint (its tests paragraph), CI, Evals, and Testing sections below still describe the template's Python and Blender example; issue 0002 rewrites them for the C# / .NET build. The Blender lines in the Issue and Implementation lifecycles describe the template's own machinery and stay.
+The Blender line in the Issue lifecycle describes the template's own machinery and stays.
+
+## SteamGate service design (orchestrator decisions, not part of the approved spec)
+
+Decision logic lives in `SteamGate.Core`; `SteamGate.Service` only connects it to Windows (service lifetime, process and registry access, the tick).
+
+- **One tick.** The worker runs one 5-second tick (`RunTickAsync`) and every periodic step of every later issue runs inside it. No other periodic loop or timer is started.
+- **One file store.** Every JSON file goes through `JsonFileStore<T>`. A missing file loads the defaults and tries to write them. A file that is not valid JSON is kept under a `corrupt-<UTC time>` name and replaced by the defaults. A file whose values the type rejects (for settings: a null list item or a negative limit) counts as not valid JSON. The move to the corrupt name is retried like a read. A locked file is retried, then the error is thrown and nothing is overwritten. A save writes a temp file and moves it over the old one, and returns false instead of throwing when it keeps failing.
+- **One caller of the stores.** Only the worker calls `Load` or `Save` on any store. Other components read an immutable snapshot the worker publishes after each tick.
+- **Servers hand work to the worker.** A server that answers clients (the pipe) may run its own accept loop, but it hands every settings or tally change to the worker through a `Channel<T>` that `RunTickAsync` drains. Issue 0002 builds no channel; the first issue whose server hands a settings or tally change to the worker creates it.
+- **Folder permissions.** `%ProgramData%\SteamGate` has inheritance removed, owner `BUILTIN\Administrators`, and full control for SYSTEM and Administrators only. No other identity has an entry.
+- **Stop is refused, Shutdown is accepted.** The service refuses Stop from the Services window and accepts Shutdown. It is still listed under its real name, an admin can still end it (Windows restarts it), and the uninstall script removes it.
+- **Crashes restart it.** Any unhandled error in the worker, or in any other long-running loop, logs and ends the process with exit code 1, so the Windows recovery setting restarts it. A server loop isolates per-connection and per-message errors and exits 1 only when the loop itself fails.
+- **Fault switch.** The service crashes on start when its registry `Environment` value holds `STEAMGATE_FAULT_TEST=1`. It exists only for `install/Test-Install.ps1`, setting it needs admin, and it sits inside the admin-teardown gap.
+- **Install doubles as upgrade.** An upgrade never touches ProgramData. A fresh install renames any existing `ProgramData\SteamGate` to `SteamGate.old-<time>` and creates a new admin-only folder.
+- **Additive settings only.** The missing or corrupt fallback is a loosening that only an admin edit (the documented admin-teardown gap) or a disk failure can reach. Settings and tally schema changes are additive only (never rename a field or change its type), so an upgrade never takes the corrupt path.
 
 ## What the system is
 
@@ -69,13 +84,17 @@ This is a direct-push model: the orchestrator is the sole committer; on PASS it 
 skills/
 agents/
 standards/
-addons/                            — example add-ons that prove the pipeline end-to-end (delete when starting your own work)
-tests/                             — dependency-free headless test harness (run_pure.py, run_headless.py, run_tests.ps1)
-evals/                             — deterministic + Claude-as-judge eval harness (cases.py, run_evals.py, judge.md)
+src/                               - product code: SteamGate.Core (decision and file-store logic), SteamGate.Service (the Windows service)
+tests/SteamGate.Tests/             - xUnit tests that assert output values
+install/                           - Install-SteamGate.ps1, Uninstall-SteamGate.ps1, SteamGate.Common.ps1 (shared by the three scripts), and Test-Install.ps1 (CI-only)
+.config/                           - pinned dotnet tools (Stryker.NET)
+tools/                             - gate and run scripts
+docs/                              - pinned approved spec and the template's dated run log
 issues/                            — issue files (NNNN-*.md); the GitHub board owns their status
 .github/workflows/ci.yml           — CI pipeline; runs on every push and PR
 .claude/commands/build.md          — /build slash command that triggers a pipeline run
 .claude/settings.json              — Claude Code settings
+SteamGate.sln · global.json · Directory.Build.props · stryker-config.json - build files
 PLAN.md         — segment-by-segment build sequence
 BUILDLOG.md     — one-line entries appended after each commit or halt
 README.md
@@ -187,16 +206,17 @@ The reviewer returns PASS/FAIL followed by a numbered list of specific defects. 
 5. Hand the raw issue to reviewer-issue with no framing — no summary, no intent statement.
 6. Reviewer returns PASS/FAIL with a numbered list of defects.
 7. On FAIL, revise the issue and re-submit to a fresh reviewer (the Ralph loop). Repeat until PASS.
-8. On PASS, create the issue via `github-write`.
-9. Update `CLAUDE.md` to reflect the new issue.
+8. If the issue builds visible output whose look the owner approves, nothing is researched or implemented until the issue records that approval (orchestrator step 2a).
+9. On PASS, create the issue via `github-write`.
+10. Update `CLAUDE.md` to reflect the new issue.
 
 ### Implementation lifecycle
 
 This is a direct-push model: the orchestrator is the sole committer; there is no pull request and no merge step.
 
-1. The Sonnet implementation agent builds toward the passing issue, consulting `blender-rag` for any bpy code. It produces the diff only — no PR.
+1. The Sonnet implementation agent builds toward the passing issue, confirming APIs per its build rule 2. It produces the diff only, no PR.
 2. Hand the raw diff to reviewer-pr with no framing.
-3. Reviewer checks: correctness, tests that assert real output values (not just counts) and trace to acceptance criteria, that the mutation/tamper gate still catches deliberately-broken code, lint/format, comment quality, naming, and architectural fit.
+3. Reviewer checks: correctness, tests that assert real output values (not just counts) and trace to acceptance criteria, that the mutation/tamper gate still catches deliberately-broken code, lint/format, comment quality, naming, and architectural fit. When no .NET SDK is installed locally, reviewer-pr verifies test, mutation, and install criteria by tracing the changed code on a concrete input to a concrete output with file:line; the executed proof is the post-push CI build-test run, and a red run is fixed or the commit reverted before any other work.
 4. On FAIL, fix the implementation and re-submit to a fresh reviewer (the Ralph loop). Repeat until PASS.
 5. The design-philosophy gate (reviewer-design-philosophy) fires after reviewer-pr returns PASS.
 6. On PASS, record the verdict via `tools/review_verdict.ps1` (binds it to the exact staged tree), then commit directly to `main` and watch CI to green before moving on — `main` is never knowingly left red. There is no branch protection by design; the post-commit CI-watch is the operative enforcement.
@@ -305,11 +325,11 @@ No FINAL, LAST, or v2_final in any filename. Use version numbers (v1, v2), dates
 The bar is that tests assert **correct output values**, not that they exist or that some
 line-coverage percentage is hit. A coverage percentage is a vanity metric — a suite can touch
 every line and still assert nothing meaningful, which for a code-blind owner is false confidence.
-So the gate is two real things instead: (1) the pure tests assert actual output values of the
-project's core logic, and (2) the
-mutation/tamper harness (`tests/mutation_harness.py`) deliberately breaks the code and proves
-those tests flip to FAIL, emitting a `guards caught N/N` line. No line-coverage threshold is
-measured or required. Documentation artifacts are exempt from tests.
+So the gate is two real things instead: (1) the xUnit tests assert actual output values of the
+project's core logic, and (2) Stryker.NET mutation testing deliberately breaks `SteamGate.Core` and
+proves those tests flip to FAIL. The build breaks below an 80% mutation score, and surviving mutants
+are listed in the CI log so a reviewer can tell an equivalent mutant from a missing test. No
+line-coverage threshold is measured or required. Documentation artifacts are exempt from tests.
 
 ### CLAUDE.md update triggers
 
@@ -332,11 +352,10 @@ The following have not yet shipped. Each becomes a future issue when the system 
 - Documentation-enforcement agent — checks that CLAUDE.md and README are updated when required triggers fire.
 - Comment-review agent — enforces the why-not-what, one-line, anti-slop comment standard.
 - Resilience and reliability testing — testing the orchestrator's behavior under failed tool calls, bad reviewer outputs, and looping conditions.
-- C# / .NET build, test, eval, and CI rules on GitHub's Windows build machines (issue 0002).
 
 ### Provided by the template
 
-- CI enforcement — `.github/workflows/ci.yml` runs the full test + mutation + eval suite on every push and PR via GitHub Actions.
+- CI enforcement: `.github/workflows/ci.yml` runs the .NET build, unit tests, Stryker.NET mutation tests, and the install test on a Windows runner on every push and PR via GitHub Actions.
 - Loop and commit gates — see the "Loop gate" and "Commit gate" notes above. An earlier verdict-file-gated Stop hook was the dead-mechanism design lesson the loop gate corrects.
 
 ## System-level change definition
@@ -346,7 +365,8 @@ A change is a system-level change when it modifies any of the governing artifact
 `agents/`, `DESIGN.md`, or `CLAUDE.md`.
 
 System-level changes are subject to the two-independent-reviewer bar defined in
-`standards/adversarial-review-protocol.md`. Ordinary add-on code and non-governing skills are
+`standards/adversarial-review-protocol.md`. Product code under `src/`, `tests/`, and
+`install/` and non-governing skills are
 not system-level — single reviewer suffices for them.
 
 When uncertain whether a change qualifies, apply the enumerated list above: if the diff touches
@@ -360,46 +380,41 @@ The system runs inside two entitlements only: a `GitHub Pro` license and an `Ant
 
 The only sanctioned model access is the Anthropic subscription. No non-Anthropic model key (OpenAI, Gemini, etc.) and no hosted eval/judge service (`Braintrust`, `LangSmith`, `OpenAI Evals`, Langfuse, Weights & Biases).
 
-The included Blender example uses local automation only: allowed calls include `execute_blender_code`, `get_scene_info`, `get_viewport_screenshot`, and the local Blender RAG. The external asset generators in the Blender MCP toolset (Poly Haven, Sketchfab, Hyper3D, Hunyuan, Rodin) are prohibited in any add-on or eval, since they would route outside the two sanctioned entitlements.
-
 Under the in-license constraint above, SteamGate uses no Steam Web API and no service that needs a key or payment. It detects running games from local Steam files and the local list of running programs (see `## SteamGate product spec`); issue 0003 builds that detection.
 
-CI runs on GitHub Actions under `GitHub Pro` on the public repo (unlimited minutes); any runtime the tests need (e.g. Blender for the example add-ons) is installed into the runner from a free/open-source source.
+CI runs on GitHub Actions under `GitHub Pro` on the public repo (unlimited minutes). `actions/setup-dotnet` installs the SDK pinned in `global.json` on the runner, and the tests and Stryker.NET come from free NuGet packages.
 
-Evals and tests are `Claude-as-judge` (the Opus reviewer agents) + the dependency-free pure tests, the mutation/tamper harness (`tests/mutation_harness.py`), and any headless runtime — all standard-library Python, no `pytest` or `coverage.py` dependency. Any dependency needing a non-Anthropic key or a hosted account is out of license by definition.
+Code review is `Claude-as-judge` (the Opus reviewer agents). The runtime is C# / .NET: the xUnit tests, the Stryker.NET mutation tests, and the install test (`install/Test-Install.ps1`) run on the GitHub Windows runner. Any dependency needing a non-Anthropic key or a hosted account is out of license by definition.
 
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request via GitHub Actions on the public repo
-(GitHub Pro, unlimited minutes). For the included example add-ons it installs a free Blender Linux build
-into the runner and executes these gates in order (adapt the list when you replace the examples):
+(GitHub Pro, unlimited minutes). Two jobs run:
 
-1. `tests/run_pure.py` — asserts the core geometry of the example add-on; plain Python, no Blender.
-2. `tests/run_phyllotaxis_pure.py` — asserts the second example add-on's geometry; plain Python, no Blender.
-3. `tests/mutation_harness.py` — the tamper gate: breaks copies of the add-ons and proves the pure tests catch it (`guards caught N/N`); plain Python, no Blender.
-4. `tests/run_headless.py` — headless operator test under `blender --background --python-exit-code 1`.
-5. `evals/run_evals.py` — deterministic eval suite, same flags.
+- `gate-integrity` (Ubuntu) checks that the commit gate file exists and is protected from line-ending damage.
+- `build-test` (`windows-latest`) runs these steps in order:
+  1. `actions/checkout`, then `actions/setup-dotnet`, which installs the SDK pinned in `global.json`.
+  2. `dotnet build -c Release`. The code analyzers fail the build on any warning.
+  3. `dotnet test -c Release`. xUnit tests assert output values.
+  4. `dotnet tool restore`, then `dotnet stryker`. Stryker.NET mutation testing on `SteamGate.Core` breaks the build below an 80% mutation score.
+  5. `dotnet publish` of `SteamGate.Service` as a self-contained single file for `win-x64`, then a copy of the install and uninstall scripts and their shared `SteamGate.Common.ps1` next to it.
+  6. `install/Test-Install.ps1`, run with Windows PowerShell 5.1. It installs the service, ends it, and checks that Windows restarts it, that a crash inside the service is restarted, that Stop is refused, that the settings folder is admin-only, and that upgrade keeps settings and uninstall removes the service, its program files, and its settings folder.
+  7. Upload of the install package as the `steamgate-win-x64` artifact.
 
-Each step fails the job on a non-zero exit (default shell behaviour). In-license: free runtime
-download; no Codecov, Coveralls, or any hosted coverage/eval SaaS.
+Each step fails the job on a non-zero exit. In-license: no Codecov, Coveralls, or any hosted coverage or test SaaS.
 
 ## Evals
 
-The eval harness (`evals/run_evals.py`) scores the work against a graded suite — two complementary modes, both in-license.
-
-**Deterministic evals** — run the work against a fixed set of inputs and assert measurable properties of the output. Prints `[PASS]`/`[FAIL]` per case and a final `EVAL SCORE: <passed>/<total>` line. Exits 1 if any case fails. (For the example add-ons this runs headless via `blender --background --python evals/run_evals.py`.)
-
-**Claude-as-judge eval** — after the deterministic suite passes, the orchestrator captures a preview of the result (for the example add-ons, a viewport screenshot via `get_viewport_screenshot`) and hands it to an Opus agent with a written rubric (see `evals/judge.md`). The judge returns `PASS`/`FAIL` with cited reasons. `Claude-as-judge` runs inside the Anthropic Max subscription — no external eval service.
-
-Cases are defined in `evals/cases.py`. The rubric and workflow for the visual pass are in `evals/judge.md`. Both modes are dependency-free (no pytest, no pip).
+There is no separate eval harness. The end-to-end check is `install/Test-Install.ps1` on the Windows runner. The status screen's look is approved by Trevor on a preview before it is built (see `## SteamGate product spec`).
 
 ## Testing
 
-The harness is dependency-free — no pytest, no pip install. Tests are split by runtime requirement:
+Tests are xUnit v3 tests in `tests/SteamGate.Tests`, run through `dotnet test`:
 
-- `tests/run_pure.py` — plain Python; for the example add-ons it stubs bpy so module-level imports succeed, then asserts pure logic (no Blender runtime).
-- `tests/run_headless.py` — runs under `blender --background --python`; registers the example add-on, exercises the operator, asserts output structure.
-- `tests/run_tests.ps1` — orchestrates both. Set `$env:BLENDER_EXE` to override the default path. Exits 1 if either sub-process exits non-zero.
+- They cover `SteamGate.Core`, where all decision and file-store logic lives, plus the service log writer.
+- Stryker.NET reruns them against deliberately broken copies of `SteamGate.Core` (see `### Test strength`). It runs them through the Microsoft Testing Platform runner.
+
+The tests run on the CI Windows runner on every push, and locally with `dotnet test -c Release` when a .NET SDK is installed.
 
 ## Setup items
 

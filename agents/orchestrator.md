@@ -33,11 +33,14 @@ allowed rounds.
 2. **Issue review** — spawn `agents/reviewer-issue.md` (Opus) via `skills/spawn-adversarial-review.md`.
    Fix every blocking defect. Re-review with a fresh reviewer instance. A FAIL is fixed, never
    overridden.
-3. **Research** — delegate to `agents/researcher.md` using `skills/research-prior-art.md`.
-   Local prior art first, then Blender RAG (`search_blender_docs`), then a short web check only
-   if needed. Do not research what prior art already answers.
+   - **2a. Owner look gate:** if the issue builds visible output whose look the owner approves, do
+     not start Research or Implementation until the issue records that approval.
+3. **Research:** Delegate to `agents/researcher.md` using `skills/research-prior-art.md`, which sets
+   the order of sources. Do not research what prior art already answers.
 4. **Implementation** — spawn `agents/implementation-agent.md` (Sonnet) with full handoff: the
-   passing issue + all prior-art file paths.
+   passing issue + the researcher's findings doc + all prior-art file paths. If the implementer returns
+   `Halted: <reason>.`, do not spawn artifact review: an unconfirmed API goes back to the Research step
+   naming that API; a scope ambiguity goes back to the Issue step to revise the issue.
 5. **Artifact review** — spawn the appropriate reviewer agent (Opus) from `agents/reviewer-*.md`
    via `skills/spawn-adversarial-review.md`. Reviewer receives only the artifact under review and the
    relevant standard — no framing, no positive hints, no planted suspicions. See
@@ -132,7 +135,9 @@ because a queue emptied or the work "felt done." Full procedure and live state: 
 - **Non-blocking by default, with a bounded stop-list.** The few genuinely owner-only decisions are surfaced
   as one-line non-blocking notes the owner answers in chat; they never stall the run. **The only things that MUST
   stop and surface before the budget** are: an irreversible/destructive action with no in-loop undo
-  (force-push, deleting data), anything outside the in-license constraint, a security defect, or a scope
+  (force-push, deleting data), anything outside the in-license constraint, a security defect, an issue
+  blocked on the owner look gate (that issue is parked and skipped, never built without approval; the
+  run continues), or a scope
   decision that is BOTH irreversible/owner-exclusive AND not determined by the goals (not merely a technical
   choice with a tradeoff — those are the orchestrator's to make from the goals). The `fix-now` pause
   (`skills/capture-system-defect.md`) still applies.
@@ -173,9 +178,9 @@ etc.) run on **Sonnet**. Reviewers (all `reviewer-*.md` agents, including the ad
 
 ## Research-first rule
 
-Before any implementation step, prefer local prior art and the Blender RAG over a web search.
-Delegate through `agents/researcher.md` / `skills/research-prior-art.md`. During normal implementation,
-web search is a last resort when local sources do not answer the question. **During an autonomous timed
+Before any implementation step, prefer local prior art over a web search. Delegate through
+`agents/researcher.md` / `skills/research-prior-art.md`, which set the order of sources. During normal
+implementation, web search is a last resort when local sources do not answer the question. **During an autonomous timed
 run's Done-Early Cascade, deep web research is a default activity, not a last resort** — when there is no
 forced next task, researching better/standard practice and bringing back concrete improvements IS the work.
 
@@ -195,9 +200,8 @@ These gates are additive to the existing `reviewer-issue` / `reviewer-pr` pipeli
 
 ## Capturing a system defect mid-run
 
-When a system defect surfaces during a Blender-development run — a skill returns a wrong result,
-the RAG is stale, a reviewer rubber-stamps or false-flags, a standard is ambiguous, a process
-step misroutes — do not silently work around it.
+When a system defect surfaces during a run (a skill returns a wrong result, a reviewer rubber-stamps
+or false-flags, a standard is ambiguous, a process step misroutes), do not silently work around it.
 
 **Action:** capture it as an issue using `skills/capture-system-defect.md`, then route it through
 `issue → review` in the standard pipeline.
@@ -225,9 +229,8 @@ The trigger is the agent noticing. No telemetry or automated detection is requir
 - No human reads code in the critical path; never add an "owner reads the code" step. The
   adversarial reviewers are the code gate — translate any code-review control into a deterministic
   check or an independent adversary per `standards/adversarial-review-protocol.md`. This does NOT
-  forbid an "owner confirms the visual result" checkpoint on changed visible output (e.g. geometry
-  in Blender, for a visual project): that is the sanctioned final-eye gate where a machine can't
-  judge the aesthetic/intent outcome, and it is anticipated and permitted (not yet built).
+  forbid an "owner confirms the look" checkpoint on visible output: it is sanctioned. For
+  SteamGate that is the status screen, whose look Trevor approves on a preview before it is built.
 - Verify every PASS: confirm every cited `file:line` reference exists, every URL resolves, every
   item in scope has an explicit finding. This check is the orchestrator's responsibility and is
   not delegated to the reviewer.

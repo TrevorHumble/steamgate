@@ -16,7 +16,9 @@ When the checks pass (the green checkmark on a build), these things have been co
 
 - **Secrets, dependencies, and known-vulnerable code are scanned.** Three of GitHub's own free safety nets run on every change: one watches for passwords or keys accidentally left in the code (Secret Scanning), one watches for outside code your project relies on going out of date or becoming risky (Dependabot), and one scans for known security holes (CodeQL — this one runs on public repos; on a private repo the other two still run).
 
-- **The code is auto-checked for cleanliness.** Two tools (ruff and bandit) automatically flag sloppy or unsafe code patterns before a change is committed — so what's built starts clean and stays clean.
+- **The code is auto-checked for cleanliness.** The .NET code analyzers run on every CI build and fail it on any warning, so sloppy or unsafe patterns block a green checkmark.
+
+- **SteamGate really survives being killed.** Every build installs SteamGate on a GitHub Windows test machine, kills it, and confirms Windows restarts it. It also confirms that SteamGate refuses a Stop command (the Stop button in the Services window is greyed out), that the settings folder is admin-only, and that an upgrade keeps your settings and an uninstall removes the service, its program files, and its settings folder.
 
 These run on their own, the same way every time, on every build. You don't have to ask for them or stand over them.
 
@@ -26,6 +28,6 @@ These run on their own, the same way every time, on every build. You don't have 
 
 A machine can prove the math is right. It cannot prove the result **looks** right, or that it's what you actually **meant**. That judgment is yours.
 
-So every build produces a preview of the result and saves it for you to look at (the "visual-confirmation" preview — for the example add-on included, that's a render of its output). The checks above guarantee the logic is correct; this preview is for the one question they can't answer — *is this what I wanted?* That's your call, as the director.
+The status screen's look is not machine-checked: you approve it on a preview before it is built (issue 0007). The checks above guarantee the logic is correct; the preview is for the one question they can't answer: *is this what I wanted?* That's your call, as the director.
 
 Put simply: **green means the work is correct and built to standard. Whether it's the right work is still your eye.**

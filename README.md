@@ -1,4 +1,22 @@
-# Self-Enforcing Orchestrator — project template
+# SteamGate
+
+SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. It runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Counting, warnings, and closing games arrive in later issues; see [DESIGN.md](DESIGN.md) for the spec.
+
+## Install
+
+Open the repo's Actions tab, pick the latest green CI run on `main`, and download `steamgate-win-x64` from its Artifacts list (you must be signed in to GitHub). Extract it. Then, from an administrator PowerShell in that folder, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Install-SteamGate.ps1
+```
+
+Artifacts expire after 90 days. If none is listed, open the Actions tab, choose CI, and press Run workflow to make a fresh one. To remove SteamGate, run `Uninstall-SteamGate.ps1` the same way.
+
+---
+
+The rest of this file describes the orchestrator template SteamGate is built with.
+
+## Self-Enforcing Orchestrator: project template
 
 Clone this and you have a project where an AI orchestrator builds your software through an adversarial review pipeline — AI reviewers whose job is to *find fault*, not rubber-stamp — **that you don't have to police**. The enforcement is baked into the repo, not left to the agent's good behavior.
 
@@ -11,7 +29,7 @@ No human reads code in the critical path. Reviewer agents are the gate. Three ho
 You need these installed once (all free):
 - **GitHub CLI** — [cli.github.com](https://cli.github.com). Sign in with `gh auth login`.
 - **Claude Code** — the AI that does the building.
-- **Python 3** — the safety checks run on it.
+- .NET 10 SDK: only to build locally; CI builds without it.
 - **Windows + PowerShell** — the hooks and setup are written in PowerShell (this template targets Windows).
 
 ## Start a new project (3 steps)
@@ -55,8 +73,6 @@ That's it. Before your first build, open **[CLAUDE.md](CLAUDE.md)** and fill in 
 
 **Doc stubs you fill in** — `CLAUDE.md` (operating rules + your North Star), `DESIGN.md`, `PLAN.md`, `BUILDLOG.md`.
 
-**A worked example** — `addons/` ships two small Blender add-ons with full tests so CI is green the moment you clone. When you start your own work, retire them with one command — `powershell -File tools/retire-example.ps1` (preview; add `-Yes` to remove). They're there to prove the whole pipeline runs end-to-end on a fresh clone.
-
 ---
 
 ## Run it autonomously
@@ -79,7 +95,11 @@ powershell -File tools/stop-run.ps1                  # emergency brake (or creat
 | `.githooks/` | The commit gate (`pre-commit`) |
 | `.claude/` | Hooks (goal gate, loop gate), settings, the `/build` command |
 | `setup.ps1` · `tools/` | one-time setup (root `setup.ps1`); `check-enforcement`, `setup-hooks`, `check-gate`, `review_verdict`, `start-run`, `stop-run` |
-| `tests/` · `evals/` | Dependency-free test + eval harness (with the example add-ons) |
+| `src/` | `SteamGate.Core` (decision and file-store logic) and `SteamGate.Service` (the Windows service) |
+| `tests/SteamGate.Tests/` | xUnit tests that assert output values |
+| `install/` | Install and uninstall scripts, and the CI-only install test |
+| `.config/` | Pinned dotnet tools (Stryker.NET mutation testing) |
+| `SteamGate.sln` · `global.json` · `Directory.Build.props` · `stryker-config.json` | Build files: solution, SDK pin, shared compiler and analyzer settings, mutation-test settings |
 | `.github/workflows/` | CI (`ci.yml`) + CodeQL (`codeql.yml`) |
 | `DESIGN.md` · `PLAN.md` · `BUILDLOG.md` | Design rationale · build plan · running log |
 

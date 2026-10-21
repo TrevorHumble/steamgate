@@ -6,3 +6,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Keep the NuGet packages used by the service and its tests patched.
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"

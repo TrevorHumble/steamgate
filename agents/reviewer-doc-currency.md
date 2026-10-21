@@ -44,7 +44,7 @@ One token verdict followed by the numbered defect list. Each defect names the tr
 For each changed file in the diff, check whether a currency trigger fired and whether the matching index/front-door doc was updated in the **same diff**:
 
 - [ ] An interface or path changed (function signature, API contract, file path, a moved or renamed file). Did the diff also update `README.md` layout, the `DESIGN.md` structure map, and the `CLAUDE.md` "Where things live" roster wherever that path is named?
-- [ ] A new top-level directory was added (`addons/`, `tests/`, `evals/`, `.github/`, or any other). Did the diff update the `README.md` layout table and the `DESIGN.md` repo-structure map?
+- [ ] A new top-level directory was added (`src/`, `tests/`, `install/`, `.github/`, or any other). Did the diff update the `README.md` layout table and the `DESIGN.md` repo-structure map?
 - [ ] A new agent, skill, or standard was added. Did the diff add it to the `CLAUDE.md` agents/skills/standards roster and the `DESIGN.md` inventory?
 - [ ] A decision recorded in `DESIGN.md` was reversed or superseded. Did the diff update the recording doc?
 - [ ] An acceptance criterion a doc lists was added, removed, or reworded. Did the diff update that doc?
