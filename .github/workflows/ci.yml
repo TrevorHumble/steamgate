@@ -25,7 +25,7 @@ jobs:
           head -1 .githooks/pre-commit | grep -q '^#!/bin/sh' \
             || { echo "commit gate shebang corrupt"; exit 1; }
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
