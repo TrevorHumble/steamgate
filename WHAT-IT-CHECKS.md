@@ -18,7 +18,7 @@ When the checks pass (the green checkmark on a build), these things have been co
 
 - **The code is auto-checked for cleanliness.** The .NET code analyzers run on every CI build and fail it on any warning, so sloppy or unsafe patterns block a green checkmark.
 
-- **SteamGate really survives being killed.** Every build installs SteamGate on a GitHub Windows test machine, kills it, and confirms Windows restarts it. It also confirms that SteamGate refuses a Stop command (the Stop button in the Services window is greyed out), that the settings folder is admin-only, and that an upgrade keeps your settings and an uninstall removes the service, its program files, and its settings folder.
+- **SteamGate really survives being killed.** Every build installs SteamGate on a GitHub Windows test machine, kills it, and confirms Windows restarts it. It also confirms that SteamGate refuses a Stop command (the Stop button in the Services window is greyed out), that the settings folder is admin-only, and that an upgrade keeps your settings and an uninstall removes the service, its program files, and its settings folder, and that time already counted is kept when SteamGate is killed and restarted.
 
 These run on their own, the same way every time, on every build. You don't have to ask for them or stand over them.
 

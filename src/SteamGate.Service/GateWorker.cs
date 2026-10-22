@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using SteamGate.Core;
+using SteamGate.Core.Accounting;
 using SteamGate.Core.Steam;
 
 namespace SteamGate.Service;
@@ -12,12 +14,12 @@ namespace SteamGate.Service;
 [SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Created by the service container.")]
 internal sealed class GateWorker : BackgroundService
 {
-    private const int AliveEveryTicks = 12;
 
     // Ships in the product because the install test uses it to prove a crash is restarted; only an admin can set it.
     private const string FaultTestVariable = "STEAMGATE_FAULT_TEST";
 
     private static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(5);
+    private static readonly int TicksPerMinute = (int)(TimeSpan.FromMinutes(1) / ScanInterval);
 
     private readonly GateLog _log = new(SteamGatePaths.DataFolder);
     private readonly SnapshotHolder _snapshots;
@@ -25,8 +27,12 @@ internal sealed class GateWorker : BackgroundService
     private readonly SteamLibraries _steam = new();
     private long _tickCount;
 
-    // The settings loaded at start; a later issue makes the not-counted list follow changes.
-    private IReadOnlyList<string> _notCounted = GateSettings.Defaults.NotCounted;
+    // The settings loaded at start; a later issue makes them follow changes.
+    private GateSettings _settings = GateSettings.Defaults;
+
+    private readonly TallyStore _tallyStore = new(SteamGatePaths.DataFolder);
+    private Tally _tally = Tally.Empty;
+    private readonly StepTimer _stepTimer = new();
 
     public GateWorker(SnapshotHolder snapshots)
     {
@@ -43,7 +49,7 @@ internal sealed class GateWorker : BackgroundService
             await Task.Yield();
 
             var loaded = new SettingsStore(SteamGatePaths.DataFolder).Load();
-            _notCounted = loaded.Value.NotCounted;
+            _settings = loaded.Value;
             if (loaded.Corrupt)
             {
                 _log.Write("settings corrupt, defaults restored");
@@ -56,11 +62,29 @@ internal sealed class GateWorker : BackgroundService
                 throw new InvalidOperationException("fault test");
             }
 
+            var tallyLoaded = _tallyStore.Load();
+            _tally = tallyLoaded.Value;
+            if (tallyLoaded.Corrupt)
+            {
+                _log.Write("tally corrupt, reset");
+            }
+
+            _log.Write(FormattableString.Invariant($"tally loaded night={_tally.Night:yyyy-MM-dd} seconds={_tally.NightSeconds.ToString("R", CultureInfo.InvariantCulture)}"));
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 await RunTickAsync(stoppingToken).ConfigureAwait(false);
-                await Task.Delay(ScanInterval, stoppingToken).ConfigureAwait(false);
+                try
+                {
+                    await Task.Delay(ScanInterval, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
             }
+
+            SaveTally();
         }
         catch (Exception ex) when (!(ex is OperationCanceledException && stoppingToken.IsCancellationRequested))
         {
@@ -80,7 +104,7 @@ internal sealed class GateWorker : BackgroundService
         cancellationToken.ThrowIfCancellationRequested();
 
         _tickCount++;
-        if (_tickCount % AliveEveryTicks == 0)
+        if (_tickCount % TicksPerMinute == 0)
         {
             _log.Write("alive");
         }
@@ -95,7 +119,7 @@ internal sealed class GateWorker : BackgroundService
             _log.Write(FormattableString.Invariant($"libraries {libraries.Count}"));
         }
 
-        var games = GameMatcher.Match(ProcessScanner.Scan(), libraries, installed, _notCounted, commonTargets);
+        var games = GameMatcher.Match(ProcessScanner.Scan(), libraries, installed, _settings.NotCounted, commonTargets);
 
         // The last published snapshot is the previous tick's games; only this worker publishes.
         var (started, stopped) = GameTransitions.Diff(
@@ -111,7 +135,47 @@ internal sealed class GateWorker : BackgroundService
             _log.Write("game stopped " + folder);
         }
 
-        _snapshots.Publish(new GateSnapshot(games, installed));
+        // One clock reading per tick, so the local and UTC times agree.
+        var now = DateTimeOffset.Now;
+        var localNow = now.DateTime;
+        CountTime(games, localNow, now.UtcDateTime);
+
+        var remaining = Budget.RemainingSeconds(_tally, _settings, localNow);
+        if (games.Count > 0 && _tickCount % TicksPerMinute == 0)
+        {
+            _log.Write(FormattableString.Invariant($"remaining {remaining:F0}"));
+        }
+
+        _snapshots.Publish(new GateSnapshot(games, installed)
+        {
+            Tally = _tally,
+            RemainingSeconds = remaining,
+            TonightLimitMinutes = Budget.NightLimitMinutes(NightClock.NightOf(localNow), _settings),
+        });
         return Task.CompletedTask;
+    }
+
+    // Counts this tick, whether or not SteamGate is enabled. On the first tick after start the downtime counts only
+    // when a game is open now and was open at the last count; StepTimer chooses the step and its cap.
+    private void CountTime(IReadOnlyList<RunningGame> games, DateTime localNow, DateTime utcNow)
+    {
+        var (step, maxStep) = _stepTimer.Next(_tally, utcNow, games.Count > 0);
+        var next = Accountant.Tick(_tally, localNow, utcNow, step, maxStep, games);
+        var changed = next != _tally;
+        _tally = next;
+
+        // Rewrite once a minute even when unchanged, so a lost or hand-edited file is restored within a minute.
+        if (changed || _tickCount % TicksPerMinute == 0)
+        {
+            SaveTally();
+        }
+    }
+
+    private void SaveTally()
+    {
+        if (!_tallyStore.Save(_tally))
+        {
+            _log.Write("save failed tally.json");
+        }
     }
 }

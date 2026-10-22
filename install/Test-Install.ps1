@@ -12,6 +12,7 @@ $PublishDir = (Resolve-Path -LiteralPath $PublishDir).Path
 $ServiceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
 $SettingsPath = Join-Path $DataDir 'settings.json'
 $LogPath = Join-Path $DataDir 'service.log'
+$TallyPath = Join-Path $DataDir 'tally.json'
 
 function Fail {
     param([string]$Message)
@@ -200,6 +201,32 @@ function Wait-SteamReady {
     Fail "service.log has no ""started pid=$ServicePid"" followed by ""libraries <count>"" within 60 seconds"
 }
 
+# Returns the night seconds in tally.json, or -1 when the file cannot be read or parsed yet (the service may be replacing it).
+function Get-NightSeconds {
+    try {
+        return [double](Get-Content -Raw -LiteralPath $TallyPath | ConvertFrom-Json).nightSeconds
+    } catch {
+        return -1
+    }
+}
+
+# Returns the seconds on the first "tally loaded" line written after the "started pid=<ServicePid>" line, or $null when there is none.
+function Get-TallyLoadedSeconds {
+    param([int]$ServicePid)
+    $lines = @(Get-LogLines)
+    $startedAt = -1
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        if ($lines[$index] -match "started pid=$ServicePid\s*$") { $startedAt = $index }
+    }
+    if ($startedAt -lt 0) { return $null }
+    foreach ($line in ($lines | Select-Object -Skip ($startedAt + 1))) {
+        if ($line -match 'tally loaded night=\d{4}-\d{2}-\d{2} seconds=(\S+)\s*$') {
+            return [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+    return $null
+}
+
 function Start-FakeGame {
     return (Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '300', '127.0.0.1' -WindowStyle Hidden -PassThru)
 }
@@ -327,5 +354,50 @@ try {
 } finally {
     Remove-FakeSteamRoot
     # The script ends uninstalled, as the first group left it.
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# 10. Time accounting: a running game is counted, and the count survives the service being ended.
+try {
+    # The night would reset in the middle of the test, so wait until just after 04:00.
+    $now = Get-Date
+    $boundary = $now.Date.AddHours(4)
+    if ($boundary -le $now) { $boundary = $boundary.AddDays(1) }
+    if (($boundary - $now).TotalMinutes -lt 15) {
+        Start-Sleep -Seconds ([int][Math]::Ceiling(($boundary.AddMinutes(1) - $now).TotalSeconds))
+    }
+
+    Reset-SteamGate @{}
+    $servicePid = New-FakeSteamRoot
+    Wait-SteamReady -ServicePid $servicePid | Out-Null
+    Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '600', '127.0.0.1' -WindowStyle Hidden | Out-Null
+
+    $counted = -1
+    $deadline = (Get-Date).AddSeconds(180)
+    while ($counted -lt 60) {
+        if ((Get-Date) -gt $deadline) { Fail 'tally.json did not reach 60 night seconds within 180 seconds' }
+        Start-Sleep -Seconds 1
+        $counted = Get-NightSeconds
+    }
+    Write-Host "TALLY $counted"
+
+    $restartedPid = Restart-ServiceProcess -What 'the restart after the tally was counted'
+    Start-Sleep -Seconds 75
+    # A read can collide with the service's save, so retry for up to 10 seconds.
+    $keptSeconds = -1
+    $readDeadline = (Get-Date).AddSeconds(10)
+    while ($true) {
+        $keptSeconds = Get-NightSeconds
+        if ($keptSeconds -ge ($counted + 30) -or (Get-Date) -gt $readDeadline) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($keptSeconds -lt ($counted + 30)) { Fail "tally.json holds $keptSeconds night seconds after the restart, expected at least $($counted + 30)" }
+    $loadedSeconds = Get-TallyLoadedSeconds -ServicePid $restartedPid
+    if ($null -eq $loadedSeconds) { Fail "service.log has no ""tally loaded"" line after ""started pid=$restartedPid""" }
+    if ($loadedSeconds -lt $counted) { Fail "the restarted service loaded $loadedSeconds night seconds, expected at least $counted" }
+    Write-Host "TALLY KEPT $keptSeconds"
+} finally {
+    Remove-FakeSteamRoot
+    # The script ends uninstalled, as the earlier groups left it.
     Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
 }
