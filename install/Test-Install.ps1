@@ -57,6 +57,153 @@ function Get-LogLines {
     return @(Get-Content -LiteralPath $LogPath)
 }
 
+# Helpers for the Steam game checks. Later issues' check groups reuse them.
+$SteamKey = 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam'
+$FakeRootBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+$FakeRoot = Join-Path $FakeRootBase 'FakeSteam'
+$FakeGameExe = Join-Path $FakeRoot 'steamapps\common\FakeGame\FakeGame.exe'
+# The InstallPath found before New-FakeSteamRoot changed it, or 'absent'. $null means nothing was recorded.
+$script:OriginalInstallPath = $null
+$script:SteamKeyCreated = $false
+
+# A just-ended program can hold its files for a moment, so retry a few times.
+function Remove-FolderWithRetry {
+    param([string]$Path)
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        if (-not (Test-Path -LiteralPath $Path)) { return }
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force
+            return
+        } catch {
+            if ($attempt -eq 10) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+# Returns the pid of the restarted service after ending the running one.
+function Restart-ServiceProcess {
+    param([string]$What)
+    $old = Get-ServicePid
+    if ($old -ne 0) { Stop-Process -Id $old -Force }
+    return (Wait-ServicePid -NotPid $old -Seconds 60 -What $What)
+}
+
+# Returns $true when a line matching $Pattern appears after the first $After lines of service.log within $Seconds.
+function Wait-LogLine {
+    param([string]$Pattern, [int]$After, [int]$Seconds)
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        $hits = @(Get-LogLines | Select-Object -Skip $After | Where-Object { $_ -match $Pattern })
+        if ($hits.Count -gt 0) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
+# Removes any installed copy directly (not through the uninstall script), installs fresh, applies $Settings
+# to settings.json as the admin test runner, and restarts the service so it loads them.
+function Reset-SteamGate {
+    param([hashtable]$Settings = @{})
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+        Clear-Recovery
+        Stop-SteamGateProcesses -Prefix 'RESET'
+        Invoke-Native 'sc delete' { sc.exe delete $ServiceName }
+        $deadline = (Get-Date).AddSeconds(30)
+        while (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+            if ((Get-Date) -gt $deadline) { Fail 'the service is still listed 30 seconds after sc delete' }
+            Start-Sleep -Seconds 1
+        }
+    } else {
+        Stop-SteamGateProcesses -Prefix 'RESET'
+    }
+    Remove-FolderWithRetry -Path $ProgramDir
+    Remove-FolderWithRetry -Path $DataDir
+    Invoke-Script (Join-Path $PublishDir 'Install-SteamGate.ps1')
+    Wait-ServicePid -NotPid 0 -Seconds 30 -What 'the service reaching Running after the reset install' | Out-Null
+    Wait-ForFile $SettingsPath
+    $json = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+    foreach ($name in $Settings.Keys) {
+        $json | Add-Member -NotePropertyName $name -NotePropertyValue $Settings[$name] -Force
+    }
+    [IO.File]::WriteAllText($SettingsPath, ($json | ConvertTo-Json -Depth 5))
+    Restart-ServiceProcess -What 'the restart after the settings were written' | Out-Null
+    Write-Host 'RESET OK'
+}
+
+# Ends FakeGame.exe, deletes the fake Steam root, and puts the registry back as New-FakeSteamRoot found it.
+function Remove-FakeSteamRoot {
+    $running = @(Get-Process -Name 'FakeGame' -ErrorAction SilentlyContinue)
+    if ($running.Count -gt 0) {
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        $running | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+    }
+    Remove-FolderWithRetry -Path $FakeRoot
+    if ($null -ne $script:OriginalInstallPath) {
+        if ($script:OriginalInstallPath -eq 'absent') {
+            Remove-ItemProperty -LiteralPath $SteamKey -Name 'InstallPath' -ErrorAction SilentlyContinue
+            if ($script:SteamKeyCreated) { Remove-Item -LiteralPath $SteamKey -Force -ErrorAction SilentlyContinue }
+        } else {
+            Set-ItemProperty -LiteralPath $SteamKey -Name 'InstallPath' -Value $script:OriginalInstallPath
+        }
+        $script:OriginalInstallPath = $null
+        $script:SteamKeyCreated = $false
+    }
+}
+
+# Builds a fake Steam root holding FakeGame.exe, points the registry at it, and restarts the service so its first tick reads it.
+# Returns the pid of the restarted service.
+function New-FakeSteamRoot {
+    if (Test-Path -LiteralPath $FakeRoot) { Remove-FakeSteamRoot }
+    $script:OriginalInstallPath = 'absent'
+    if (Test-Path -LiteralPath $SteamKey) {
+        $values = Get-ItemProperty -LiteralPath $SteamKey
+        if ($values.PSObject.Properties['InstallPath']) { $script:OriginalInstallPath = [string]$values.InstallPath }
+    } else {
+        New-Item -Path $SteamKey -Force | Out-Null
+        $script:SteamKeyCreated = $true
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $FakeGameExe) -Force | Out-Null
+    $escapedRoot = $FakeRoot.Replace('\', '\\')
+    $vdf = @"
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"$escapedRoot"
+	}
+}
+"@
+    [IO.File]::WriteAllText((Join-Path $FakeRoot 'steamapps\libraryfolders.vdf'), $vdf)
+    Copy-Item -LiteralPath (Join-Path $env:SystemRoot 'System32\ping.exe') -Destination $FakeGameExe
+    Set-ItemProperty -LiteralPath $SteamKey -Name 'InstallPath' -Value $FakeRoot
+    return (Restart-ServiceProcess -What 'the restart after the fake Steam root was set')
+}
+
+# Waits until the service with this pid has logged its start and then its first "libraries <count>" line,
+# and returns the number of log lines at that moment, so a caller can time what follows.
+function Wait-SteamReady {
+    param([int]$ServicePid)
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+        $lines = @(Get-LogLines)
+        $startedAt = -1
+        for ($index = 0; $index -lt $lines.Count; $index++) {
+            if ($lines[$index] -match "started pid=$ServicePid\s*$") { $startedAt = $index }
+        }
+        if ($startedAt -ge 0) {
+            $libraryLines = @($lines | Select-Object -Skip ($startedAt + 1) | Where-Object { $_ -match 'libraries \d+\s*$' })
+            if ($libraryLines.Count -gt 0) { return $lines.Count }
+        }
+        Start-Sleep -Seconds 1
+    }
+    Fail "service.log has no ""started pid=$ServicePid"" followed by ""libraries <count>"" within 60 seconds"
+}
+
+function Start-FakeGame {
+    return (Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '300', '127.0.0.1' -WindowStyle Hidden -PassThru)
+}
+
 # 1. Fresh install.
 Invoke-Script (Join-Path $PublishDir 'Install-SteamGate.ps1')
 $first = Wait-ServicePid -NotPid 0 -Seconds 30 -What 'the service reaching Running'
@@ -158,3 +305,27 @@ if (-not $gone) { Fail 'the service is still listed 30 seconds after uninstall' 
 if (Test-Path -LiteralPath $DataDir) { Fail "$DataDir still exists after uninstall" }
 if (Test-Path -LiteralPath $ProgramDir) { Fail "$ProgramDir still exists after uninstall" }
 Write-Host 'UNINSTALLED'
+
+# 9. Steam game detection: a counted game is seen, and a not-counted one is not.
+try {
+    Reset-SteamGate @{}
+    $servicePid = New-FakeSteamRoot
+    $mark = Wait-SteamReady -ServicePid $servicePid
+    $fakeGame = Start-FakeGame
+    if (-not (Wait-LogLine -Pattern 'game started FakeGame\s*$' -After $mark -Seconds 20)) { Fail 'service.log has no "game started FakeGame" within 20 seconds' }
+    Write-Host 'DETECTED FakeGame'
+    Stop-Process -Id $fakeGame.Id -Force
+    if (-not (Wait-LogLine -Pattern 'game stopped FakeGame\s*$' -After $mark -Seconds 20)) { Fail 'service.log has no "game stopped FakeGame" within 20 seconds' }
+    Write-Host 'STOPPED FakeGame'
+
+    Reset-SteamGate @{ notCounted = @('FakeGame') }
+    $servicePid = New-FakeSteamRoot
+    $mark = Wait-SteamReady -ServicePid $servicePid
+    $fakeGame = Start-FakeGame
+    if (Wait-LogLine -Pattern 'game started FakeGame' -After $mark -Seconds 20) { Fail 'FakeGame was counted although it is on the not-counted list' }
+    Write-Host 'NOT COUNTED FakeGame'
+} finally {
+    Remove-FakeSteamRoot
+    # The script ends uninstalled, as the first group left it.
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}

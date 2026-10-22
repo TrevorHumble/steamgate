@@ -15,6 +15,7 @@ if (WindowsServiceHelpers.IsWindowsService())
     builder.Services.AddSingleton<IHostLifetime, GateServiceLifetime>();
 }
 
+builder.Services.AddSingleton<SnapshotHolder>();
 builder.Services.AddHostedService<GateWorker>();
 
 builder.Build().Run();

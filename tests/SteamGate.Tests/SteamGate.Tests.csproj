@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\SteamGate.Core\SteamGate.Core.csproj" />
     <ProjectReference Include="..\..\src\SteamGate.Service\SteamGate.Service.csproj" />
   </ItemGroup>
