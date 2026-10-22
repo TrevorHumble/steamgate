@@ -1,0 +1,290 @@
+<title>SteamGate Status Screen</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one Windows app window, summary on top, rules and lists below in plain rows. */
+:root {
+  --bg: #e9edf1;
+  --win: #fbfcfd;
+  --line: #d8dee5;
+  --fg: #1b232c;
+  --muted: #5d6b79;
+  --accent: #2c6a8a;
+  --accent-soft: #e2eef4;
+  --wait: #9a5b00;
+  --wait-soft: #fbf0dd;
+  --now: #2d7a3e;
+  --now-soft: #e3f2e6;
+  --bar: #d3dbe3;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px; }
+.window { max-width: 760px; margin: 0 auto; background: var(--win); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.titlebar { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.titlebar .ctl { display: flex; gap: 18px; }
+.content { padding: 20px 24px 24px; display: grid; gap: 24px; }
+h1 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.counting { font-size: 13px; color: var(--muted); }
+.counting b { color: var(--fg); font-weight: 600; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--now); margin-right: 6px; }
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.meter { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+.meter .label { font-size: 13px; color: var(--muted); }
+.meter .big { font-family: var(--display); font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.meter .big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.track { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); }
+.meter .sub { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); min-width: 0; }
+.row:first-child { border-top: 0; }
+.row .name { min-width: 0; }
+.row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.note { font-size: 12px; color: var(--muted); }
+button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--win); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--win); }
+.editor { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px 12px; background: var(--accent-soft); border-radius: 4px; }
+.editor .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input, select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--win); color: var(--fg); }
+input[type=number] { width: 80px; }
+.verdict { font-size: 13px; padding: 6px 10px; border-radius: 4px; }
+.verdict.wait { background: var(--wait-soft); color: var(--wait); }
+.verdict.now { background: var(--now-soft); color: var(--now); }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--wait-soft); color: var(--wait); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.days label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.danger { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.empty { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.sample { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
+@media (max-width: 560px) { .meters { grid-template-columns: 1fr; } .content { padding: 16px; } }
+</style>
+
+<div class="window">
+  <div class="titlebar"><span>SteamGate</span><span class="ctl"><span>&#8211;</span><span>&#9633;</span><span>&#10005;</span></span></div>
+  <div class="content">
+    <div class="head">
+      <h1>SteamGate</h1>
+      <div class="counting"><span class="dot"></span>Counting now: <b>Cyberpunk 2077</b></div>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <div class="label">Tonight (weeknight, ends 4 AM)</div>
+        <div class="big">43 min <small>left</small></div>
+        <div class="track"><div class="fill" style="width:52%"></div></div>
+        <div class="sub">47 of 90 min used</div>
+      </div>
+      <div class="meter">
+        <div class="label">This week (resets Monday 4 AM)</div>
+        <div class="big">3 h 50 min <small>left</small></div>
+        <div class="track"><div class="fill" style="width:62%"></div></div>
+        <div class="sub">6 h 10 min of 10 h used</div>
+      </div>
+    </div>
+
+    <section>
+      <h2>Rules</h2>
+      <div class="rows" id="rules"></div>
+      <p class="note">Loosening a rule waits the cooldown. Tightening a rule applies now.</p>
+    </section>
+
+    <section>
+      <h2>Waiting to apply</h2>
+      <div class="rows" id="pending"></div>
+    </section>
+
+    <section>
+      <h2>Not counted</h2>
+      <div class="rows" id="whitelist"></div>
+      <div class="editor" style="margin-top:8px">
+        <div class="line">
+          <label for="addApp">Add a Steam program:</label>
+          <select id="addApp"><option>Viewfinder</option><option>Red Dead Redemption 2</option><option>Overwatch</option><option>Arc Raiders</option><option>Dying Light The Beast</option></select>
+          <button id="addBtn">Request</button>
+        </div>
+        <div class="verdict wait">Adding a program loosens the rules. It waits 48 h.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Turn off or remove</h2>
+      <div class="danger">
+        <button id="offBtn">Request turn off</button>
+        <button id="rmBtn">Request removal</button>
+        <span class="note">Both wait 48 h.</span>
+      </div>
+    </section>
+  </div>
+</div>
+<p class="sample">Sample data. Clicking works on this preview; nothing is saved.</p>
+
+<div class="bannerdemo">
+  <h2>Warning overlay (on top of the game, bottom right, fades out)</h2>
+  <div class="screen">
+    <div class="gamefake">Your game</div>
+    <div class="gbanner" id="gbanner"><span class="gbar"></span><span id="gtext">10 minutes of gaming left.</span></div>
+  </div>
+  <div class="danger" style="margin-top:12px">
+    <button id="b30">30 minutes</button>
+    <button id="b20">20 minutes</button>
+    <button id="b10">10 minutes</button>
+    <button id="b5">5 minutes</button>
+    <button id="b1">1 minute</button>
+    <button id="bclose">Time is up</button>
+  </div>
+  <p class="note">No sound. The overlay stays on top, never takes focus, lets clicks pass through to the game, stays for 8 seconds, then fades out over 2 seconds. It shows over borderless and windowed games, not over exclusive full-screen.</p>
+</div>
+
+<style>
+.bannerdemo { max-width: 760px; margin: 28px auto 0; }
+.screen { position: relative; height: 200px; border-radius: 8px; overflow: hidden; background: #1c2a1f; }
+.gamefake { position: absolute; inset: 0; display: grid; place-items: center; color: #6f8f74; font-family: var(--display); font-size: 22px; letter-spacing: .1em; text-transform: uppercase; }
+.gbanner { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-radius: 6px; background: rgba(20, 26, 32, .94); color: #f2f5f8; font-family: var(--ui); font-size: 15px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.4); max-width: calc(100% - 32px); }
+.gbar { width: 10px; height: 10px; border-radius: 50%; background: #f0b357; flex: none; }
+</style>
+<script>
+(function(){
+  const banner = document.getElementById("gbanner"), text = document.getElementById("gtext");
+  let timer = null;
+  const show = s => {
+    text.textContent = s; clearTimeout(timer);
+    banner.style.transition = "none"; banner.style.opacity = "1";
+    timer = setTimeout(() => { banner.style.transition = "opacity 2s linear"; banner.style.opacity = "0"; }, 8000);
+  };
+  document.getElementById("b30").onclick = () => show("30 minutes of gaming left.");
+  document.getElementById("b20").onclick = () => show("20 minutes of gaming left.");
+  document.getElementById("b10").onclick = () => show("10 minutes of gaming left.");
+  document.getElementById("b5").onclick = () => show("5 minutes of gaming left.");
+  document.getElementById("b1").onclick = () => show("1 minute of gaming left.");
+  document.getElementById("bclose").onclick = () => show("Time is up. Closing Cyberpunk 2077.");
+})();
+</script>
+
+<script>
+const NOW = new Date(2026, 9, 20, 21, 14);
+let state = {
+  weeknight: 90, weekend: 180, weekly: 600, cooldown: 48, days: ["Fri","Sat"],
+  wl: ["Blender","OBS Studio","Wallpaper Engine","Steamworks Shared"],
+  pending: [{ text: "Weeknight limit: 90 min to 120 min", at: new Date(2026, 9, 22, 19, 2) }]
+};
+const fmtMin = m => m >= 60 ? (m % 60 ? `${Math.floor(m/60)} h ${m%60} min` : `${m/60} h`) : `${m} min`;
+const fmtAt = d => d.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const left = d => { const h = Math.round((d - NOW) / 36e5); return h >= 24 ? `in ${Math.floor(h/24)} d ${h%24} h` : `in ${h} h`; };
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+let open = null;
+
+const rules = [
+  { key: "weeknight", name: "Weeknight limit", show: () => fmtMin(state.weeknight), unit: "min" },
+  { key: "weekend", name: "Weekend night limit", show: () => fmtMin(state.weekend), unit: "min" },
+  { key: "days", name: "Weekend nights", show: () => state.days.join(", ") },
+  { key: "weekly", name: "Weekly cap", show: () => fmtMin(state.weekly), unit: "min" },
+  { key: "cooldown", name: "Cooldown", show: () => `${state.cooldown} h`, unit: "h", max: 168 }
+];
+
+function renderRules() {
+  const box = document.getElementById("rules"); box.innerHTML = "";
+  rules.forEach(r => {
+    const row = el("div", "row");
+    row.append(el("div", "name", r.name), el("div", "val", r.show()));
+    const b = el("button", "", open === r.key ? "Close" : "Change");
+    b.onclick = () => { open = open === r.key ? null : r.key; renderRules(); };
+    row.append(b);
+    if (open === r.key) row.append(editor(r));
+    box.append(row);
+  });
+}
+
+function editor(r) {
+  const ed = el("div", "editor"), line = el("div", "line"), v = el("div", "verdict");
+  let read;
+  if (r.key === "days") {
+    const days = el("div", "days");
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d => {
+      const l = el("label"), c = el("input"); c.type = "checkbox"; c.id = "d" + d; c.checked = state.days.includes(d);
+      c.onchange = upd; l.append(c, d); days.append(l);
+    });
+    line.append(days);
+    read = () => [...days.querySelectorAll("input")].filter(c => c.checked).map(c => c.id.slice(1));
+  } else {
+    const i = el("input"); i.type = "number"; i.id = "in-" + r.key; i.min = 0; if (r.max) i.max = r.max;
+    i.value = state[r.key]; i.oninput = upd;
+    line.append(i, el("span", "note", r.unit + (r.max ? " (most 168 h, which is 7 days)" : "")));
+    read = () => Number(i.value);
+  }
+  const go = el("button", "primary", "Request change");
+  line.append(go); ed.append(line, v);
+  function verdict() {
+    const n = read(), cur = state[r.key];
+    if (r.key === "days") {
+      const adds = n.some(d => !cur.includes(d)), same = n.length === cur.length && !adds;
+      return same ? null : adds ? "wait" : "now";
+    }
+    if (r.max && n > r.max) return "bad";
+    if (n === cur) return null;
+    const looser = r.key === "cooldown" ? n < cur : n > cur;
+    return looser ? "wait" : "now";
+  }
+  function upd() {
+    const k = verdict();
+    v.className = "verdict " + (k === "now" ? "now" : "wait");
+    v.textContent = k === "now" ? "This tightens the rule. It applies now."
+      : k === "wait" ? `This loosens the rule. It applies ${fmtAt(new Date(+NOW + state.cooldown * 36e5))} (${state.cooldown} h).`
+      : k === "bad" ? "The cooldown can be at most 168 h (7 days)." : "No change yet.";
+    go.disabled = !k || k === "bad";
+  }
+  go.onclick = () => {
+    const k = verdict(), n = read();
+    if (k === "now") state[r.key] = n;
+    else if (k === "wait") state.pending.push({ text: `${r.name}: ${r.show()} to ${r.key === "days" ? n.join(", ") : r.key === "cooldown" ? n + " h" : fmtMin(n)}`, at: new Date(+NOW + state.cooldown * 36e5) });
+    open = null; renderAll();
+  };
+  upd();
+  return ed;
+}
+
+function renderPending() {
+  const box = document.getElementById("pending"); box.innerHTML = "";
+  if (!state.pending.length) { box.append(el("div", "empty", "Nothing waiting.")); return; }
+  state.pending.forEach((p, i) => {
+    const row = el("div", "row");
+    row.append(el("div", "name", `${p.text}<div class="note">Applies ${fmtAt(p.at)}</div>`), el("span", "pill", left(p.at)));
+    const b = el("button", "", "Cancel");
+    b.onclick = () => { state.pending.splice(i, 1); renderAll(); };
+    row.append(b); box.append(row);
+  });
+}
+
+function renderWl() {
+  const box = document.getElementById("whitelist"); box.innerHTML = "";
+  state.wl.forEach((w, i) => {
+    const row = el("div", "row");
+    row.append(el("div", "name", w), el("span", "note", "Removing applies now"));
+    const b = el("button", "", "Remove");
+    b.onclick = () => { state.wl.splice(i, 1); renderAll(); };
+    row.append(b); box.append(row);
+  });
+}
+
+document.getElementById("addBtn").onclick = () => {
+  const s = document.getElementById("addApp").value;
+  state.pending.push({ text: `Stop counting ${s}`, at: new Date(+NOW + state.cooldown * 36e5) }); renderAll();
+};
+document.getElementById("offBtn").onclick = () => { state.pending.push({ text: "Turn SteamGate off", at: new Date(+NOW + state.cooldown * 36e5) }); renderAll(); };
+document.getElementById("rmBtn").onclick = () => { state.pending.push({ text: "Allow SteamGate to be removed", at: new Date(+NOW + state.cooldown * 36e5) }); renderAll(); };
+
+function renderAll() { renderRules(); renderPending(); renderWl(); }
+renderAll();
+</script>

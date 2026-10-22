@@ -24,7 +24,7 @@ public static class LocalPathPolicy
         Normalize(path) is { } full && isLocal(full) ? full : null;
 
     /// <summary>
-    /// False for a path that is not fully qualified or is a network path, and for a place a link must not move a game or library to: a drive root, anything under %SystemRoot% or %ProgramData%, or anything
+    /// False for a path that is not fully qualified or is a network path, and for a place a link must not move a game or library to: a drive root, anything under %SystemRoot%, %ProgramData%, or the Users folder on the system drive, or anything
     /// under %ProgramFiles% or %ProgramFiles(x86)% except under the fixed folder %ProgramFiles(x86)%\Steam\steamapps\common.
     /// No library and no user-written value earns an exemption, so a junction cannot make system programs count as a game.
     /// Never throws.
@@ -41,7 +41,7 @@ public static class LocalPathPolicy
         }
 
         // Normalize keeps the separator on a drive root, so a root is as long as its own root part.
-        if (Path.GetPathRoot(full)?.Length == full.Length || IsUnder(full, roots.SystemRoot) || IsUnder(full, roots.ProgramData))
+        if (Path.GetPathRoot(full)?.Length == full.Length || IsUnder(full, roots.SystemRoot) || IsUnder(full, roots.ProgramData) || IsUnder(full, roots.UsersRoot))
         {
             return false;
         }

@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 # gate-integrity always runs. build-test builds SteamGate on a Windows runner, runs the unit tests
-# and the mutation tests, then installs the published service and kills it to prove Windows restarts it.
+# and the mutation tests, then installs the published service and helper and checks that Windows restarts a killed service,
+# that a game started after the limit is closed, and that bad pipe clients cannot stop the service.
 
 jobs:
   gate-integrity:
@@ -46,10 +47,13 @@ jobs:
       - name: Publish the service
         run: dotnet publish src/SteamGate.Service -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o out
 
+      - name: Publish the helper
+        run: dotnet publish src/SteamGate.Helper -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o out
+
       - name: Add the install and uninstall scripts and their shared file
         run: Copy-Item install/Install-SteamGate.ps1, install/Uninstall-SteamGate.ps1, install/SteamGate.Common.ps1 -Destination out
 
-      - name: Install test (install, kill, restart, upgrade, uninstall)
+      - name: Install test (install, kill, restart, upgrade, uninstall, enforcement, pipe)
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File install/Test-Install.ps1 -PublishDir out
 
       - name: Upload the install package

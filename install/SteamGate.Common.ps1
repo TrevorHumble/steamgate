@@ -30,26 +30,35 @@ function Clear-Recovery {
     Invoke-Native 'sc failure (clear)' { cmd.exe /c $clearLine }
 }
 
-# Ends the service process and any other process running from Program Files, then waits for them.
+# Ends the service process first and waits for it, so it cannot start a new helper in between. Only then does it end every other
+# process running from Program Files (the helper, in every session), and wait for those.
 function Stop-SteamGateProcesses {
     param([Parameter(Mandatory)][string]$Prefix)
-    $ids = New-Object System.Collections.Generic.List[int]
+    $ended = 0
     $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'"
-    if ($service -and $service.ProcessId -gt 0) { $ids.Add([int]$service.ProcessId) }
+    if ($service -and $service.ProcessId -gt 0) {
+        $servicePid = [int]$service.ProcessId
+        Stop-Process -Id $servicePid -Force -ErrorAction SilentlyContinue
+        $alive = @(Get-Process -Id $servicePid -ErrorAction SilentlyContinue)
+        if ($alive.Count -gt 0) { $alive | Wait-Process -Timeout 30 }
+        $ended++
+    }
+    $registered = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($registered) { $registered.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)) }
     $programPrefix = $ProgramDir + '\'
+    $ids = New-Object System.Collections.Generic.List[int]
     foreach ($proc in @(Get-CimInstance -ClassName Win32_Process)) {
         if ($proc.ExecutablePath -and $proc.ExecutablePath.StartsWith($programPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            if (-not $ids.Contains([int]$proc.ProcessId)) { $ids.Add([int]$proc.ProcessId) }
+            $ids.Add([int]$proc.ProcessId)
         }
     }
     foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
     if ($ids.Count -gt 0) {
-        $alive = @(Get-Process -Id $ids.ToArray() -ErrorAction SilentlyContinue)
-        if ($alive.Count -gt 0) { $alive | Wait-Process -Timeout 30 }
+        $left = @(Get-Process -Id $ids.ToArray() -ErrorAction SilentlyContinue)
+        if ($left.Count -gt 0) { $left | Wait-Process -Timeout 30 }
     }
-    $registered = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($registered) { $registered.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)) }
-    Write-Host "${Prefix}: ended $($ids.Count) running process(es)"
+    $ended += $ids.Count
+    Write-Host "${Prefix}: ended $ended running process(es)"
 }
 
 # Returns a text problem, or nothing when the folder is admin-only.

@@ -184,8 +184,8 @@ function New-FakeSteamRoot {
 # Waits until the service with this pid has logged its start and then its first "libraries <count>" line,
 # and returns the number of log lines at that moment, so a caller can time what follows.
 function Wait-SteamReady {
-    param([int]$ServicePid)
-    $deadline = (Get-Date).AddSeconds(60)
+    param([int]$ServicePid, [int]$Seconds = 60)
+    $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
         $lines = @(Get-LogLines)
         $startedAt = -1
@@ -198,7 +198,7 @@ function Wait-SteamReady {
         }
         Start-Sleep -Seconds 1
     }
-    Fail "service.log has no ""started pid=$ServicePid"" followed by ""libraries <count>"" within 60 seconds"
+    Fail "service.log has no ""started pid=$ServicePid"" followed by ""libraries <count>"" within $Seconds seconds"
 }
 
 # Returns the night seconds in tally.json, or -1 when the file cannot be read or parsed yet (the service may be replacing it).
@@ -400,4 +400,225 @@ try {
     Remove-FakeSteamRoot
     # The script ends uninstalled, as the earlier groups left it.
     Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# Helpers for the pipe checks.
+$ProbeScript = Join-Path $PSScriptRoot 'PipeProbe.ps1'
+
+# Opens \\.\pipe\SteamGate as the admin test runner, which the pipe allows full control.
+function Connect-SteamGatePipe {
+    $client = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'SteamGate', [System.IO.Pipes.PipeDirection]::InOut)
+    $client.Connect(15000)
+    return $client
+}
+
+function Send-PipeText {
+    param($Client, [string]$Text)
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $Client.Write($bytes, 0, $bytes.Length)
+    $Client.Flush()
+}
+
+# Starts PipeProbe.ps1 and returns the process. Pass -Credential to run it as another user.
+function Start-PipeProbe {
+    param([string]$OutFile, [int]$WaitSeconds, $Credential = $null, [string]$WorkingDirectory = $env:SystemRoot)
+    Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ProbeScript`"", '-OutFile', "`"$OutFile`"", '-WaitSeconds', "$WaitSeconds")
+    $parameters = @{ FilePath = 'powershell.exe'; ArgumentList = $arguments; WindowStyle = 'Hidden'; PassThru = $true; WorkingDirectory = $WorkingDirectory }
+    if ($null -ne $Credential) {
+        $parameters['Credential'] = $Credential
+        $parameters['LoadUserProfile'] = $true
+    }
+    return (Start-Process @parameters)
+}
+
+# Waits for the probe's file and returns its text, or fails.
+function Wait-ProbeResult {
+    param([string]$OutFile, [int]$Seconds, [string]$What)
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path -LiteralPath $OutFile) {
+            $text = [IO.File]::ReadAllText($OutFile).Trim()
+            if ($text.Length -gt 0) { return $text }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    Fail "$What did not write $OutFile within $Seconds seconds"
+}
+
+function Assert-ProbeConnected {
+    param([string]$Text, [string]$What)
+    if ($Text -notmatch '^CONNECTED (S-1-5-18|S-1-5-32-544)$') { Fail "$What wrote ""$Text"", expected CONNECTED S-1-5-18 or CONNECTED S-1-5-32-544" }
+}
+
+# 11. Enforcement: with no time left, a game started after the limit is closed (polite close, then force close).
+try {
+    Reset-SteamGate @{ weeknightMinutes = 0; weekendNightMinutes = 0 }
+    $servicePid = New-FakeSteamRoot
+    $mark = Wait-SteamReady -ServicePid $servicePid -Seconds 30
+    $fakeGame = Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '600', '127.0.0.1' -WindowStyle Hidden -PassThru
+    $deadline = (Get-Date).AddSeconds(90)
+    while (-not $fakeGame.HasExited) {
+        if ((Get-Date) -gt $deadline) { Fail 'FakeGame was still running 90 seconds after it started with no time left' }
+        Start-Sleep -Seconds 1
+    }
+    $fresh = @(Get-LogLines | Select-Object -Skip $mark)
+    if (@($fresh | Where-Object { $_ -match 'polite close FakeGame\s*$' }).Count -eq 0) { Fail 'service.log has no "polite close FakeGame"' }
+    if (@($fresh | Where-Object { $_ -match 'force close FakeGame\s*$' }).Count -gt 0) {
+        Write-Host 'FakeGame ended by force close'
+    } else {
+        Write-Host 'FakeGame exited after the polite close'
+    }
+    # The helper check runs about every 30 seconds, so allow a little longer for its line.
+    $helperLine = $null
+    $helperDeadline = (Get-Date).AddSeconds(60)
+    while ($null -eq $helperLine) {
+        $found = @(Get-LogLines | Select-Object -Skip $mark | Where-Object { $_ -match 'helper started session=\d+\s*$|helper not started: no console user\s*$' })
+        if ($found.Count -gt 0) { $helperLine = $found[0] }
+        elseif ((Get-Date) -gt $helperDeadline) { Fail 'service.log has neither "helper started session=" nor "helper not started: no console user"' }
+        else { Start-Sleep -Seconds 1 }
+    }
+    if ($helperLine -match 'helper started session=') { Write-Host 'helper started session=' } else { Write-Host 'helper not started: no console user' }
+    Write-Host 'ENFORCED FakeGame'
+} finally {
+    Remove-FakeSteamRoot
+    # The script ends uninstalled, as the earlier groups left it.
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# 12. The pipe: bad clients cannot stop the service, and a good client is heard.
+$clients = @()
+try {
+    Reset-SteamGate @{}
+    $servicePidBefore = Get-ServicePid
+    $mark = (Get-LogLines).Count
+
+    $first = Connect-SteamGatePipe
+    $clients += $first
+    Send-PipeText -Client $first -Text "not json`n"
+
+    $second = Connect-SteamGatePipe
+    $clients += $second
+    $chunk = New-Object byte[] 65536
+    try {
+        # The server drops this connection after 16 KB, so the write ends with an error long before 10 MB.
+        for ($sent = 0; $sent -lt (10MB); $sent += $chunk.Length) {
+            $second.Write($chunk, 0, $chunk.Length)
+        }
+    } catch [System.IO.IOException] {
+        Write-Host 'the server dropped the 10 MB sender'
+    }
+
+    $third = Connect-SteamGatePipe
+    $clients += $third
+    Send-PipeText -Client $third -Text "{`"type`":`"hello`",`"role`":`"status`"}`n"
+    if (-not (Wait-LogLine -Pattern "pipe hello role=status pid=$PID\s*$" -After $mark -Seconds 2)) { Fail "service.log has no ""pipe hello role=status pid=$PID"" within 2 seconds" }
+    if ((Get-ServicePid) -ne $servicePidBefore) { Fail 'the service process changed after the bad pipe clients' }
+    $aliveMark = (Get-LogLines).Count
+    if (-not (Wait-LogLine -Pattern 'alive\s*$' -After $aliveMark -Seconds 70)) { Fail 'no new "alive" line within 70 seconds after the pipe checks' }
+    if ((Get-ServicePid) -ne $servicePidBefore) { Fail 'the service process changed during the pipe checks' }
+    Write-Host 'PIPE OK'
+} finally {
+    foreach ($client in $clients) { $client.Dispose() }
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# 12b and 12c. A standard user's rights are enough: the probe and the real helper both reach the pipe without admin.
+$probeUser = 'sgprobe'
+$probeDir = Join-Path $FakeRootBase 'SteamGateProbe'
+$userHelper = $null
+$userCreated = $false
+try {
+    Reset-SteamGate @{}
+    $userPassword = 'Sg1!' + [Guid]::NewGuid().ToString('N')
+    New-LocalUser -Name $probeUser -Password (ConvertTo-SecureString $userPassword -AsPlainText -Force) -AccountNeverExpires -PasswordNeverExpires | Out-Null
+    $userCreated = $true
+    try { Add-LocalGroupMember -Group 'Users' -Member $probeUser -ErrorAction Stop } catch { Write-Host "Users group: $($_.Exception.Message)" }
+    $credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$probeUser", (ConvertTo-SecureString $userPassword -AsPlainText -Force))
+
+    Remove-FolderWithRetry -Path $probeDir
+    New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
+    Invoke-Native 'icacls grant probe folder' { icacls $probeDir /grant "${env:COMPUTERNAME}\${probeUser}:(OI)(CI)M" }
+    $userOut = Join-Path $probeDir 'standard-user.txt'
+    Start-PipeProbe -OutFile $userOut -WaitSeconds 20 -Credential $credential | Out-Null
+    $userResult = Wait-ProbeResult -OutFile $userOut -Seconds 60 -What 'the standard-user probe'
+    Assert-ProbeConnected -Text $userResult -What 'the standard-user probe'
+    Write-Host 'PIPE USER OK'
+
+    $mark = (Get-LogLines).Count
+    $userHelper = Start-Process -FilePath (Join-Path $ProgramDir 'SteamGate.Helper.exe') -Credential $credential -LoadUserProfile -WorkingDirectory $env:SystemRoot -PassThru
+    if (-not (Wait-LogLine -Pattern "pipe hello role=helper pid=$($userHelper.Id)\s*$" -After $mark -Seconds 15)) { Fail "service.log has no ""pipe hello role=helper pid=$($userHelper.Id)"" within 15 seconds" }
+    Write-Host 'HELPER USER OK'
+} finally {
+    # Each cleanup step is guarded, so a failing one cannot skip the uninstall at the end.
+    if ($null -ne $userHelper) {
+        try { Stop-Process -Id $userHelper.Id -Force -ErrorAction SilentlyContinue } catch { Write-Host "cleanup: $($_.Exception.Message)" }
+    }
+    if ($userCreated) {
+        try { Remove-LocalUser -Name $probeUser -ErrorAction SilentlyContinue } catch { Write-Host "cleanup: $($_.Exception.Message)" }
+        try {
+            Get-CimInstance -ClassName Win32_UserProfile -ErrorAction SilentlyContinue | Where-Object { $_.LocalPath -like "*\$probeUser" } | Remove-CimInstance -ErrorAction SilentlyContinue
+        } catch { Write-Host "cleanup: $($_.Exception.Message)" }
+    }
+    try { Remove-FolderWithRetry -Path $probeDir } catch { Write-Host "cleanup: $($_.Exception.Message)" }
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# 13. Another process holds the pipe name: the service keeps running and logs it, then takes the pipe back when it is free.
+$squatter = $null
+try {
+    Reset-SteamGate @{}
+    $oldPid = Get-ServicePid
+    $mark = (Get-LogLines).Count
+    Stop-Process -Id $oldPid -Force
+    # Windows restarts the service after 5 seconds; the squatter must hold the name before it comes back.
+    $squatDeadline = (Get-Date).AddSeconds(5)
+    while ($null -eq $squatter) {
+        try {
+            $squatter = New-Object System.IO.Pipes.NamedPipeServerStream('SteamGate', [System.IO.Pipes.PipeDirection]::InOut, 1)
+        } catch {
+            if ((Get-Date) -gt $squatDeadline) { Fail "could not take the pipe name within 5 seconds: $($_.Exception.Message)" }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    $squatPid = Wait-ServicePid -NotPid $oldPid -Seconds 60 -What 'the restart while the pipe name was held'
+    for ($second = 1; $second -le 30; $second++) {
+        Start-Sleep -Seconds 1
+        if ((Get-ServicePid) -ne $squatPid) { Fail "pid $squatPid did not stay Running for 30 seconds while the pipe name was held" }
+    }
+    if (@(Get-LogLines | Select-Object -Skip $mark | Where-Object { $_ -match 'pipe unavailable' }).Count -eq 0) { Fail 'service.log has no "pipe unavailable" while the pipe name was held' }
+    Write-Host 'PIPE SQUAT OK'
+
+    $squatter.Dispose()
+    $squatter = $null
+    $mark = (Get-LogLines).Count
+    $adminOut = Join-Path $FakeRootBase 'admin-probe.txt'
+    $adminProbe = Start-PipeProbe -OutFile $adminOut -WaitSeconds 15
+    $adminResult = Wait-ProbeResult -OutFile $adminOut -Seconds 15 -What 'the admin probe after the pipe was released'
+    Assert-ProbeConnected -Text $adminResult -What 'the admin probe after the pipe was released'
+    if (-not (Wait-LogLine -Pattern "pipe hello role=status pid=$($adminProbe.Id)\s*$" -After $mark -Seconds 5)) { Fail "service.log has no ""pipe hello role=status pid=$($adminProbe.Id)"" after the pipe was released" }
+    Remove-Item -LiteralPath $adminOut -Force -ErrorAction SilentlyContinue
+    Write-Host 'PIPE RECOVERED'
+} finally {
+    if ($null -ne $squatter) { $squatter.Dispose() }
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# 14. A running helper does not stop the uninstall.
+$runningHelper = $null
+try {
+    Reset-SteamGate @{}
+    $runningHelper = Start-Process -FilePath (Join-Path $ProgramDir 'SteamGate.Helper.exe') -PassThru
+    Start-Sleep -Seconds 3
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    $gone = $false
+    for ($second = 0; $second -lt 30; $second++) {
+        if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { $gone = $true; break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $gone) { Fail 'the service is still listed 30 seconds after uninstall with the helper running' }
+    if (Test-Path -LiteralPath $ProgramDir) { Fail "$ProgramDir still exists after uninstall with the helper running" }
+    Write-Host 'UNINSTALLED'
+} finally {
+    if ($null -ne $runningHelper) { Stop-Process -Id $runningHelper.Id -Force -ErrorAction SilentlyContinue }
 }

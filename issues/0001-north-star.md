@@ -17,14 +17,15 @@ the spec in `docs/approved-spec-2026-10-20.md`, read with its approval note, ins
 - A Windows service in C# / .NET. No window, tray icon, or Alt-Tab entry. Windows restarts it if
   killed. Settings and tally live in a protected system folder (ProgramData, admin-only writes).
 - A small invisible helper runs in the user's own login, shows the warnings, and does the polite
-  close. The service does the counting and the force-close. Each warning also plays a sound.
+  close. The service does the counting and the force-close. Each warning is a silent overlay on top of
+  the game that takes no focus or input and fades out. Amended 2026-10-21 (issue 0005).
 - Counts wall-clock minutes while at least one Steam game is open; two games at once do not
   double-count.
 - Defaults: weeknight 90 min; weekend night 3 h; weekend nights are
   Friday, Saturday, and Sunday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap
   resets Monday 4 AM. The tally is saved to disk every minute.
-- Warnings at 10, 5, and 1 minutes left, each with a sound; at the limit a polite close, then a force
-  close; any game started after the limit is closed.
+- Warnings at 30, 20, 10, 5, and 1 minutes left, each a silent overlay; at the limit a polite close, then a force
+  close; any game started after the limit is closed. Amended 2026-10-21 (issue 0005).
 - Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a
   program to the not-counted list, disable, uninstall) waits the full cooldown. Any change that
   tightens a rule applies right away. The cooldown has a hard maximum of 7 days.
@@ -75,10 +76,10 @@ heading to the next heading of the same or higher level.
    **Then** no added line contains the character U+2014 (em dash) or the HTML entity spelled
    ampersand, `mdash`, semicolon.
 10. **Given** `CLAUDE.md`, **When** a reader greps the `### Product outcomes` section, **Then** it
-   contains each of these literal strings: `do not double-count`, `plays a sound`, `polite close`,
+   contains each of these literal strings: `do not double-count`, `silent overlay`, `polite close`,
    `force close`, `started after the limit`, `tightens a rule applies right away`, `loosens a rule`,
    `disable`, `uninstall`, `removing applies now`, `ProgramData`, `Alt-Tab`, `invisible helper`,
-   `status screen`, `Windows restarts it`, `every minute`.
+   `status screen`, `Windows restarts it`, `every minute`. Amended 2026-10-21 (issue 0005).
 11. **Given** `DESIGN.md`, **When** a reader greps it, **Then** it contains a section headed
    `## SteamGate product spec` that contains the literal strings `90 min`, `48 h`, `7 days`, `Approval source:`,
    `admin teardown`, `system clock`, `issue 0002 rewrites them`, `services can't draw on the screen`,

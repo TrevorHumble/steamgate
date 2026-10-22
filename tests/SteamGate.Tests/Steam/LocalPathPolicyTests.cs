@@ -39,13 +39,13 @@ public sealed class LocalPathPolicyTests
         Assert.True(LocalPathPolicy.MovedTargetAllowed(steamCommon));
         Assert.True(LocalPathPolicy.MovedTargetAllowed(Path.Combine(steamCommon, "G")));
         Assert.True(LocalPathPolicy.MovedTargetAllowed(programFiles + "Evil"));
-        Assert.True(LocalPathPolicy.MovedTargetAllowed(Path.Combine(temp.Folder, "moved")));
+        Assert.True(LocalPathPolicy.MovedTargetAllowed(Path.Combine(Path.GetPathRoot(temp.Folder)!, "SteamGateTestLibrary", "moved")));
     }
 
     [Fact]
     public void MovedTargetAllowed_GivenRoots_AppliesEachRule()
     {
-        var roots = new PolicyRoots(@"C:\Sys", @"C:\Pf", @"C:\Pf86", @"C:\Pd", @"C:\Pf86\Steam\steamapps\common");
+        var roots = new PolicyRoots(@"C:\Sys", @"C:\Pf", @"C:\Pf86", @"C:\Pd", @"C:\Users", @"C:\Pf86\Steam\steamapps\common");
 
         Assert.False(LocalPathPolicy.MovedTargetAllowed(@"D:\", roots));
         Assert.False(LocalPathPolicy.MovedTargetAllowed(@"C:\Sys", roots));
@@ -63,9 +63,25 @@ public sealed class LocalPathPolicyTests
     }
 
     [Fact]
+    public void UsersFolderTargetRefused()
+    {
+        var roots = new PolicyRoots(@"C:\Sys", @"C:\Pf", @"C:\Pf86", @"C:\Pd", @"C:\Users", @"C:\Pf86\Steam\steamapps\common");
+
+        Assert.False(LocalPathPolicy.MovedTargetAllowed(@"C:\Users", roots));
+        Assert.False(LocalPathPolicy.MovedTargetAllowed(@"C:\Users\Other\Games\G", roots));
+        Assert.False(LocalPathPolicy.MovedTargetAllowed(@"c:\users\other", roots));
+        Assert.True(LocalPathPolicy.MovedTargetAllowed(@"D:\Users\Other\G", roots));
+        Assert.True(LocalPathPolicy.MovedTargetAllowed(@"C:\UsersX\G", roots));
+
+        // The real roots put the Users folder on the system drive.
+        var usersFolder = Path.Combine(Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows))!, "Users", "Anyone", "G");
+        Assert.False(LocalPathPolicy.MovedTargetAllowed(usersFolder));
+    }
+
+    [Fact]
     public void MovedTargetAllowed_SystemFolderWinsOverTheSteamConstant_AndOtherLibrariesAreUnaffected()
     {
-        var roots = new PolicyRoots(@"D:\Win", @"D:\Pf", @"D:\Pf86", @"D:\Pd", @"D:\Win\Steam\steamapps\common");
+        var roots = new PolicyRoots(@"D:\Win", @"D:\Pf", @"D:\Pf86", @"D:\Pd", @"D:\Users", @"D:\Win\Steam\steamapps\common");
 
         Assert.False(LocalPathPolicy.MovedTargetAllowed(@"D:\Win\System32", roots));
         Assert.False(LocalPathPolicy.MovedTargetAllowed(@"D:\Win\Steam\steamapps\common\G", roots));

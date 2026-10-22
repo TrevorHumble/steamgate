@@ -16,4 +16,7 @@ public sealed record GateSnapshot(IReadOnlyList<RunningGame> Games, IReadOnlyLis
 
     /// <summary>Tonight's limit in minutes. Null until the first tick has computed it.</summary>
     public int? TonightLimitMinutes { get; init; }
+
+    /// <summary>True when a verified helper (the overlay program in the user's session) is connected to the pipe.</summary>
+    public bool HelperConnected { get; init; }
 }

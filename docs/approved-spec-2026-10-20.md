@@ -36,3 +36,13 @@ SPEC
 Trevor, in chat with the build session (session cd2c77e4) on 2026-10-21: "weekend nights are fri sat and sunday btw".
 The weekend nights are Friday, Saturday, and Sunday. This replaces the weekend-nights default in the SPEC list above and wins over it.
 Nothing else in the spec changes.
+
+## Amendment 2026-10-21 (warnings)
+
+Trevor, in chat with the build session on 2026-10-21 (passed on from the main session), about the warnings: "It looks good, but I think I need an earlier warning. Like a 30-minute and 20-minute and 10-minute and 5-minute. Like, I need all of those. Because games are played in rounds. If I get into a round and it's like, hey, there's 20 minutes left and I would get kicked in the middle of a round, that's not good."
+The warnings come at 30, 20, 10, 5, and 1 minutes left. The 1-minute warning stays because he did not drop it. This replaces "warnings at 10/5/1 min" in the issue 4 line and wins over it.
+
+Trevor, same day, on the preview of the warning: "No sound, I just need an overlay." No sound is played anywhere. Each warning is a silent overlay drawn on top of the game: always on top, it never takes focus or keyboard and mouse input, and it fades out on its own. This replaces "with sound" in the issue 4 line and "Each warning plays a sound too" in the SPEC list above, and wins over them. Trevor approved the overlay look, an 8-second hold, and a 2-second fade on the preview (docs/preview-2026-10-21.html) on 2026-10-21: "Looks good. Approved."
+
+Known gap, which Trevor has been told: an overlay cannot draw over a game in exclusive full-screen mode, only over a borderless or windowed one. The force close works either way.
+Nothing else in the spec changes.

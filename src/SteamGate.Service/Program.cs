@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting.WindowsServices;
+using SteamGate.Core;
 using SteamGate.Service;
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -15,7 +16,11 @@ if (WindowsServiceHelpers.IsWindowsService())
     builder.Services.AddSingleton<IHostLifetime, GateServiceLifetime>();
 }
 
+// One log instance, so two writers never append to and rotate service.log at once.
+builder.Services.AddSingleton(new GateLog(SteamGatePaths.DataFolder));
 builder.Services.AddSingleton<SnapshotHolder>();
+builder.Services.AddSingleton<PipeServer>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<PipeServer>());
 builder.Services.AddHostedService<GateWorker>();
 
 builder.Build().Run();

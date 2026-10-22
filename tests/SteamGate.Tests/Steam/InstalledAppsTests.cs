@@ -313,7 +313,7 @@ public sealed class InstalledAppsTests
         using var temp = new TempFolder();
         var drive = temp.Folder;
         var system = Path.Combine(drive, "Win");
-        var roots = new PolicyRoots(system, Path.Combine(drive, "Pf"), Path.Combine(drive, "Pf86"), Path.Combine(drive, "Pd"), Path.Combine(drive, "Pf86", "Steam", "steamapps", "common"));
+        var roots = new PolicyRoots(system, Path.Combine(drive, "Pf"), Path.Combine(drive, "Pf86"), Path.Combine(drive, "Pd"), Path.Combine(drive, "Users"), Path.Combine(drive, "Pf86", "Steam", "steamapps", "common"));
         var fine = Path.Combine(drive, "Games", "Fine");
         var programData = Path.Combine(drive, "Pd", "Sub");
         Directory.CreateDirectory(Path.Combine(system, "System32"));

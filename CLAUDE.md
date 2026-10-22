@@ -18,10 +18,10 @@ This system exists for one person and one aim: **Trevor, a functional tech who d
 Short form of DESIGN.md "## SteamGate product spec".
 
 - A Windows service in C# / .NET. No window, tray icon, or Alt-Tab entry. Windows restarts it if killed. Settings and tally live in a protected system folder (ProgramData, admin-only writes).
-- A small invisible helper runs in the user's own login, shows the warnings, and does the polite close. The service does the counting and the force-close. Each warning also plays a sound.
+- A small invisible helper runs in the user's own login, shows the warnings, and does the polite close. The service does the counting and the force-close. Each warning is a silent overlay on top of the game that takes no focus or input and fades out.
 - Counts wall-clock minutes while at least one Steam game is open; two games at once do not double-count.
 - Defaults: weeknight 90 min; weekend night 3 h; weekend nights are Friday, Saturday, and Sunday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap resets Monday 4 AM. The tally is saved to disk every minute.
-- Warnings at 10, 5, and 1 minutes left, each with a sound; at the limit a polite close, then a force close; any game started after the limit is closed.
+- Warnings at 30, 20, 10, 5, and 1 minutes left; at the limit a polite close, then a force close; any game started after the limit is closed.
 - Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a program to the not-counted list, disable, uninstall) waits the full cooldown. Any change that tightens a rule applies right away. The cooldown has a hard maximum of 7 days.
 - Not-counted list, pre-filled with Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared, editable from the status screen; adding waits the cooldown, removing applies now.
 - Status screen: see where you stand, request changes, edit the not-counted list. It is visual, so Trevor approves its look on a preview before it is built.
@@ -34,6 +34,7 @@ On conflict, correct this section to match DESIGN.md (DESIGN.md "Where the docum
 - Changing the system clock could fool the counter.
 - SteamGate never hides from antivirus or Windows and never blocks their removal.
 - Task Manager can kill the service; Windows restarts it, and the tally survives.
+- The warning overlay cannot draw over a game in exclusive full-screen mode, only over borderless and windowed games. The force close works either way.
 
 ---
 

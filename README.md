@@ -1,6 +1,6 @@
 # SteamGate
 
-SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. It runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games arrive in later issues; see [DESIGN.md](DESIGN.md) for the spec.
+SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. It runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games work: an invisible helper shows a silent overlay at 30, 20, 10, 5, and 1 minutes left, then the game is closed at the limit. See [DESIGN.md](DESIGN.md) for the spec.
 
 ## Install
 
@@ -96,8 +96,9 @@ powershell -File tools/stop-run.ps1                  # emergency brake (or creat
 | `.claude/` | Hooks (goal gate, loop gate), settings, the `/build` command |
 | `setup.ps1` · `tools/` | one-time setup (root `setup.ps1`); `check-enforcement`, `setup-hooks`, `check-gate`, `review_verdict`, `start-run`, `stop-run` |
 | `src/` | `SteamGate.Core` (decision and file-store logic) and `SteamGate.Service` (the Windows service) |
+| `src/SteamGate.Helper` | The invisible helper in the user's session: the warning overlay and the polite close |
 | `tests/SteamGate.Tests/` | xUnit tests that assert output values |
-| `install/` | Install and uninstall scripts, and the CI-only install test |
+| `install/` | Install and uninstall scripts, the CI-only install test, and `PipeProbe.ps1` (CI-only) |
 | `.config/` | Pinned dotnet tools (Stryker.NET mutation testing) |
 | `SteamGate.sln` · `global.json` · `Directory.Build.props` · `stryker-config.json` | Build files: solution, SDK pin, shared compiler and analyzer settings, mutation-test settings |
 | `.github/workflows/` | CI (`ci.yml`) + CodeQL (`codeql.yml`) |

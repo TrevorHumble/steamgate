@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using SteamGate.Core;
 using SteamGate.Core.Accounting;
+using SteamGate.Core.Enforcement;
+using SteamGate.Core.Pipe;
 using SteamGate.Core.Steam;
 
 namespace SteamGate.Service;
@@ -21,7 +23,12 @@ internal sealed class GateWorker : BackgroundService
     private static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(5);
     private static readonly int TicksPerMinute = (int)(TimeSpan.FromMinutes(1) / ScanInterval);
 
-    private readonly GateLog _log = new(SteamGatePaths.DataFolder);
+    // About every 30 seconds the worker rechecks the helpers and starts one if none is connected.
+    private const int HelperCheckTicks = 6;
+
+    private readonly GateLog _log;
+    private readonly PipeServer _pipe;
+    private readonly HelperLauncher _launcher;
     private readonly SnapshotHolder _snapshots;
     private readonly Stopwatch _sinceStart = Stopwatch.StartNew();
     private readonly SteamLibraries _steam = new();
@@ -34,9 +41,15 @@ internal sealed class GateWorker : BackgroundService
     private Tally _tally = Tally.Empty;
     private readonly StepTimer _stepTimer = new();
 
-    public GateWorker(SnapshotHolder snapshots)
+    // Enforcement: the planner's memory, started from this service's own start time.
+    private PlannerState _planner = PlannerState.Initial(DateTime.UtcNow);
+
+    public GateWorker(SnapshotHolder snapshots, GateLog log, PipeServer pipe)
     {
         _snapshots = snapshots;
+        _log = log;
+        _pipe = pipe;
+        _launcher = new HelperLauncher(log);
     }
 
     // Any unhandled error ends the process with exit code 1: a clean stop (exit code 0) would not make Windows restart it.
@@ -109,6 +122,17 @@ internal sealed class GateWorker : BackgroundService
             _log.Write("alive");
         }
 
+        // The pipe is a convenience: if it is down this retries it and nothing else changes.
+        _pipe.EnsureListening();
+        if (_tickCount % HelperCheckTicks == 0)
+        {
+            _pipe.RecheckHelpers();
+            if (!_pipe.HelperConnected)
+            {
+                _launcher.Start();
+            }
+        }
+
         var (libraries, installed, commonTargets, refreshed) = _steam.Refresh(
             SteamRootLocator.Locate,
             _sinceStart.Elapsed,
@@ -146,13 +170,65 @@ internal sealed class GateWorker : BackgroundService
             _log.Write(FormattableString.Invariant($"remaining {remaining:F0}"));
         }
 
-        _snapshots.Publish(new GateSnapshot(games, installed)
+        var snapshot = new GateSnapshot(games, installed)
         {
             Tally = _tally,
             RemainingSeconds = remaining,
             TonightLimitMinutes = Budget.NightLimitMinutes(NightClock.NightOf(localNow), _settings),
-        });
+        };
+        Enforce(snapshot);
+        _snapshots.Publish(snapshot with { HelperConnected = _pipe.HelperConnected });
         return Task.CompletedTask;
+    }
+
+    // Runs the planner once and carries out what it asks. A warning that no helper could show is kept and shown when one connects.
+    private void Enforce(GateSnapshot snapshot)
+    {
+        var remaining = snapshot.RemainingSeconds ?? double.NaN;
+        var (next, actions) = EnforcementPlanner.Step(_planner, remaining, snapshot.Games, _settings.Enabled, _sinceStart.Elapsed);
+        _planner = next;
+        foreach (var action in actions)
+        {
+            switch (action)
+            {
+                case Warn warn:
+                    _log.Write(FormattableString.Invariant($"warn {warn.Minutes}"));
+                    DeliverWarning(warn);
+                    break;
+                case PoliteClose polite:
+                    _log.Write("polite close " + polite.Game.Folder);
+                    _pipe.PostToHelpers(new CloseMessage(polite.Game.Folder, polite.Game.DisplayName, [.. polite.Game.Processes.Select(process => process.Pid)]));
+                    break;
+                case ForceClose force:
+                    ForceCloseGame(force.Game);
+                    break;
+            }
+        }
+
+        var replay = EnforcementPlanner.ReplayWarn(_planner, remaining, snapshot.Games.Count > 0);
+        if (replay is not null && _pipe.HelperConnected)
+        {
+            DeliverWarning(replay);
+        }
+    }
+
+    private void DeliverWarning(Warn warn)
+    {
+        _planner = _pipe.PostToHelpers(new WarnMessage(warn.Minutes)) > 0
+            ? EnforcementPlanner.MarkDelivered(_planner)
+            : EnforcementPlanner.MarkUndelivered(_planner);
+    }
+
+    private void ForceCloseGame(RunningGame game)
+    {
+        _log.Write("force close " + game.Folder);
+        foreach (var process in game.Processes)
+        {
+            if (!ProcessKiller.Kill(process.Pid, process.StartUtc))
+            {
+                _log.Write(FormattableString.Invariant($"force close not done pid={process.Pid}"));
+            }
+        }
     }
 
     // Counts this tick, whether or not SteamGate is enabled. On the first tick after start the downtime counts only

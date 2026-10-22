@@ -20,6 +20,8 @@ When the checks pass (the green checkmark on a build), these things have been co
 
 - **SteamGate really survives being killed.** Every build installs SteamGate on a GitHub Windows test machine, kills it, and confirms Windows restarts it. It also confirms that SteamGate refuses a Stop command (the Stop button in the Services window is greyed out), that the settings folder is admin-only, and that an upgrade keeps your settings and an uninstall removes the service, its program files, and its settings folder, and that time already counted is kept when SteamGate is killed and restarted.
 
+- **A game started after the limit is closed.** Every build sets the limit to zero on a Windows test machine, starts a fake game, and confirms the service logs the polite close and then ends the game within 90 seconds. The same run confirms that a bad or oversized message on the warning pipe cannot stop SteamGate, that a standard user can reach the pipe, and that SteamGate keeps running and takes the pipe back when another program holds it.
+
 These run on their own, the same way every time, on every build. You don't have to ask for them or stand over them.
 
 ---
@@ -28,6 +30,6 @@ These run on their own, the same way every time, on every build. You don't have 
 
 A machine can prove the math is right. It cannot prove the result **looks** right, or that it's what you actually **meant**. That judgment is yours.
 
-The status screen's look is not machine-checked: you approve it on a preview before it is built (issue 0007). The checks above guarantee the logic is correct; the preview is for the one question they can't answer: *is this what I wanted?* That's your call, as the director.
+The helper's part is not machine-checked either. The build machine may have no signed-in user, so the build does not prove that the helper draws the warning overlay, that it asks the game to close (the polite close), or that the service launches it; those are looked at on the first real install on this PC. The look of the status screen and of the warning overlay is not machine-checked: you approve each on a preview before it is built (the status screen is issue 0007; you approved the warning overlay on 2026-10-21). The checks above guarantee the logic is correct; the preview is for the one question they can't answer: *is this what I wanted?* That's your call, as the director.
 
 Put simply: **green means the work is correct and built to standard. Whether it's the right work is still your eye.**
