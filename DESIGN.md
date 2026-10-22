@@ -10,7 +10,7 @@ The product owner sets vision and tests outcomes. They do not necessarily write 
 
 The `CLAUDE.md` sections `### Product outcomes` and `### Known gaps (documented, not solved)` are the short form of this section.
 
-The approved text is pinned, unedited, in docs/approved-spec-2026-10-20.md. If this section and that file disagree, that file governs and this section is corrected to match.
+The approved text is pinned, unedited, with dated amendments appended below the original, in docs/approved-spec-2026-10-20.md. If this section and that file disagree, that file governs and this section is corrected to match.
 
 Approval source: Trevor said go on 2026-10-20 (session local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900) to the plan he pasted plus the four fixes the assistant proposed, then asked for "a max cooldown so you don't accidentally set it for like a year" and for Blender, OBS, and Wallpaper Engine on the not-counted list. Two values were added in the build brief afterward and were not shown to him before his go: "Steamworks Shared" in the pre-filled list, and the number 7 for the cooldown maximum (he asked for a maximum without a number). Trevor approved both later on 2026-10-20, passed on from the main session (local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900), in his words: "Both of those sound good to me."
 
@@ -40,6 +40,12 @@ SPEC
 - The status screen is visual: Trevor approves its look on a preview before it is built.
 
 The Blender line in the Issue lifecycle describes the template's own machinery and stays.
+
+### Amendment 2026-10-21 (weekend nights)
+
+Trevor, in chat with the build session (session cd2c77e4) on 2026-10-21: "weekend nights are fri sat and sunday btw".
+The weekend nights are Friday, Saturday, and Sunday. This replaces the weekend-nights default in the SPEC list above and wins over it.
+Nothing else in the spec changes.
 
 ## SteamGate service design (orchestrator decisions, not part of the approved spec)
 
@@ -455,4 +461,4 @@ it is a log, not the task tracker.
 
 **README.md** is the short human-facing front door. It orients a newcomer, links to DESIGN.md for depth, and links to CLAUDE.md for operating rules. It does not duplicate content from either.
 
-**docs/approved-spec-2026-10-20.md** is Trevor's approved SteamGate spec, pinned unedited. On any conflict about the product spec, it governs DESIGN.md "## SteamGate product spec", which governs CLAUDE.md "### Product outcomes".
+**docs/approved-spec-2026-10-20.md** is Trevor's approved SteamGate spec, pinned unedited, with dated amendments appended below the original. On any conflict about the product spec, it governs DESIGN.md "## SteamGate product spec", which governs CLAUDE.md "### Product outcomes".

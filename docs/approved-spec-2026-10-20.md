@@ -1,6 +1,6 @@
 # Approved SteamGate spec (2026-10-20)
 
-**As the orchestrator or a reviewer checking SteamGate work, I need Trevor's approved spec text unedited, so I can tell what he approved from what was added later.**
+**As the orchestrator or a reviewer checking SteamGate work, I need Trevor's approved spec text unedited, with dated amendments appended below the original, so I can tell what he approved from what was added later.**
 
 Approval source: Trevor said go on 2026-10-20 (session local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900) to the plan he pasted plus the four fixes the assistant proposed, then asked for "a max cooldown so you don't accidentally set it for like a year" and for Blender, OBS, and Wallpaper Engine on the not-counted list. Two values were added in the build brief afterward and were not shown to him before his go: "Steamworks Shared" in the pre-filled list, and the number 7 for the cooldown maximum (he asked for a maximum without a number). Trevor approved both later on 2026-10-20, passed on from the main session (local_9d1a5e4a-29cd-4cb2-ae67-ba26dbd1d900), in his words: "Both of those sound good to me."
 
@@ -30,3 +30,9 @@ SPEC
 - Current Steam library: Arc Raiders, Cyberpunk 2077, Dying Light The Beast, Overwatch, Red Dead Redemption 2, Viewfinder (C:\Program Files (x86)\Steam).
 - The .NET SDK was not found on this PC. CI can build on GitHub's Windows runners; ask Trevor before installing the SDK locally.
 - The status screen is visual: Trevor approves its look on a preview before it is built.
+
+## Amendment 2026-10-21 (weekend nights)
+
+Trevor, in chat with the build session (session cd2c77e4) on 2026-10-21: "weekend nights are fri sat and sunday btw".
+The weekend nights are Friday, Saturday, and Sunday. This replaces the weekend-nights default in the SPEC list above and wins over it.
+Nothing else in the spec changes.

@@ -13,16 +13,16 @@ the product outcomes, and the known gaps written into CLAUDE.md, DESIGN.md, and 
 the template's placeholders, so that every decision I make on issues 0002 to 0007 is checked against
 the spec in `docs/approved-spec-2026-10-20.md`, read with its approval note, instead of a generic template.
 
-## Product spec summary (paraphrase; the approved text is `docs/approved-spec-2026-10-20.md`, the same as the GitHub #6 body, and governs)
+## Product spec summary (paraphrase; the approved text is `docs/approved-spec-2026-10-20.md`, the same as the GitHub #6 body, plus amendments appended below, and governs)
 - A Windows service in C# / .NET. No window, tray icon, or Alt-Tab entry. Windows restarts it if
   killed. Settings and tally live in a protected system folder (ProgramData, admin-only writes).
 - A small invisible helper runs in the user's own login, shows the warnings, and does the polite
   close. The service does the counting and the force-close. Each warning also plays a sound.
 - Counts wall-clock minutes while at least one Steam game is open; two games at once do not
   double-count.
-- Defaults: weeknight 90 min; weekend night 3 h; weekend nights are Friday and Saturday; weekly cap
-  10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap resets Monday 4 AM. The tally is saved to
-  disk every minute.
+- Defaults: weeknight 90 min; weekend night 3 h; weekend nights are
+  Friday, Saturday, and Sunday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap
+  resets Monday 4 AM. The tally is saved to disk every minute.
 - Warnings at 10, 5, and 1 minutes left, each with a sound; at the limit a polite close, then a force
   close; any game started after the limit is closed.
 - Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a
@@ -50,7 +50,7 @@ heading to the next heading of the same or higher level.
    `**Trust without checking**` and `**Software that holds up**`.
 3. **Given** `CLAUDE.md`, **When** a reader greps it, **Then** it contains a section headed
    `### Product outcomes` that contains each of these literal strings:
-   `90 min`, `weekend night 3 h`, `Friday and Saturday`, `10 h`, `night ends at 4 AM`,
+   `90 min`, `weekend night 3 h`, `Friday, Saturday, and Sunday`, `10 h`, `night ends at 4 AM`,
    `Monday 4 AM`, `48 h`, `7 days`, `10, 5, and 1 minutes`, `Blender`, `OBS Studio`,
    `Wallpaper Engine`, `Steamworks Shared`, `correct this section to match DESIGN.md`.
 4. **Given** `CLAUDE.md`, **When** a reader greps it, **Then** it contains a section headed
@@ -89,7 +89,7 @@ heading to the next heading of the same or higher level.
    contains `0002`.
 14. **Given** `standards/issue-standards.md` and `standards/documentation-standards.md`, **When** a
    reader greps them, **Then** neither contains `Lesson from issue #0001`.
-15. **Given** `DESIGN.md` and `docs/approved-spec-2026-10-20.md` (the pinned copy of the GitHub #6 body), **When** a reader compares each numbered issue line
+15. **Given** `DESIGN.md` and `docs/approved-spec-2026-10-20.md` (the pinned copy of the GitHub #6 body, plus amendments appended below), **When** a reader compares each numbered issue line
    and each bullet line under `SPEC` in that file against the `## SteamGate product spec` section, **Then**
    every such line, including its leading list marker, appears as one whole line, character for
    character, in that section.

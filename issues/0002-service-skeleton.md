@@ -36,6 +36,7 @@ window, tray icon, or Alt-Tab entry. Windows restarts it if killed. Settings and
 system folder (ProgramData, admin-only writes)." "Defaults: weeknight 90 min; weekend night 3 h;
 weekend nights = Friday + Saturday; weekly cap 10 h; cooldown 48 h." Not-counted list pre-filled with
 Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared.
+Amended 2026-10-21 (issue 0008): weekend nights are Friday, Saturday, and Sunday.
 
 ## Design decisions (orchestrator)
 - No .NET SDK was installed on this PC when this issue was drafted (Trevor approved installing SDK
@@ -68,7 +69,7 @@ Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared.
   through the 0005 pipe, never the files, so they cannot lock a file to crash the service). Files: `settings.json`,
   `service.log` (rolled to `service.log.1` past 1 MB).
 - `settings.json` (camelCase keys, day names as strings): `weeknightMinutes` 90,
-  `weekendNightMinutes` 180, `weekendNights` `["Friday","Saturday"]`, `weeklyCapMinutes` 600,
+  `weekendNightMinutes` 180, `weekendNights` `["Friday","Saturday","Sunday"]`, `weeklyCapMinutes` 600,
   `cooldownHours` 48, `notCounted` `["Blender","OBS Studio","wallpaper_engine","Steamworks Shared"]`
   (Steam install folder names under `steamapps\common`), `enabled` true. The status screen (0007)
   displays them through `GateSettings.ApprovedNames`; the stored values are Steam folder names used
@@ -124,11 +125,11 @@ A named section runs from its heading to the next heading of the same or higher 
 
 1. **Given** a fresh `SettingsStore` on an empty temp folder, **When** `Load()` runs, **Then** it
    returns `WeeknightMinutes == 90`, `WeekendNightMinutes == 180`, `WeekendNights == [Friday,
-   Saturday]`, `WeeklyCapMinutes == 600`, `CooldownHours == 48`, `NotCounted == ["Blender","OBS
+   Saturday, Sunday]`, `WeeklyCapMinutes == 600`, `CooldownHours == 48`, `NotCounted == ["Blender","OBS
    Studio","wallpaper_engine","Steamworks Shared"]`, `Enabled == true`, `Corrupt == false`;
    `settings.json` now exists;
    and its text, with whitespace removed, contains `"weeknightMinutes":90` and
-   `"weekendNights":["Friday","Saturday"]`. (Test `SettingsStoreTests.Load_EmptyFolder_WritesDefaults`.)
+   `"weekendNights":["Friday","Saturday","Sunday"]`. (Test `SettingsStoreTests.Load_EmptyFolder_WritesDefaults`.)
 1b. **Given** `GateSettings.ApprovedNames`, **When** a test reads it, **Then** it has exactly 4
    entries and `ApprovedNames["wallpaper_engine"] == "Wallpaper Engine"`,
    `ApprovedNames["Blender"] == "Blender"`, `ApprovedNames["OBS Studio"] == "OBS Studio"`,
@@ -141,7 +142,7 @@ A named section runs from its heading to the next heading of the same or higher 
    `SettingsStoreTests.SaveThenLoad_RoundTrips`.)
 2b. **Given** a `settings.json` containing only `{"weeknightMinutes":75}`, **When** `Load()` runs,
    **Then** `WeeknightMinutes == 75`, `Enabled == true`, `CooldownHours == 48`,
-   `WeeklyCapMinutes == 600`, `WeekendNights == [Friday, Saturday]`, `NotCounted ==
+   `WeeklyCapMinutes == 600`, `WeekendNights == [Friday, Saturday, Sunday]`, `NotCounted ==
    ["Blender","OBS Studio","wallpaper_engine","Steamworks Shared"]`, and `Corrupt == false`.
    (Test `SettingsStoreTests.Load_MissingFields_TakeDefaults`.)
 3. **Given** a `settings.json` containing `not json`, **When** `Load()` runs, **Then** it returns the

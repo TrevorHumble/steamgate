@@ -20,7 +20,7 @@ public sealed class GateSettingsTests
     [Fact]
     public void Defaults_AreBuilt_WithNonNullLists()
     {
-        Assert.Equal([DayOfWeek.Friday, DayOfWeek.Saturday], GateSettings.Defaults.WeekendNights);
+        Assert.Equal([DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday], GateSettings.Defaults.WeekendNights);
         Assert.Equal(["Blender", "OBS Studio", "wallpaper_engine", "Steamworks Shared"], GateSettings.Defaults.NotCounted);
     }
 

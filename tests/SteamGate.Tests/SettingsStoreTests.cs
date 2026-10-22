@@ -7,7 +7,7 @@ namespace SteamGate.Tests;
 public sealed class SettingsStoreTests
 {
     private static readonly string[] DefaultNotCounted = ["Blender", "OBS Studio", "wallpaper_engine", "Steamworks Shared"];
-    private static readonly DayOfWeek[] DefaultWeekendNights = [DayOfWeek.Friday, DayOfWeek.Saturday];
+    private static readonly DayOfWeek[] DefaultWeekendNights = [DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
     private static readonly DayOfWeek[] OnlyFriday = [DayOfWeek.Friday];
     private static readonly string[] OnlyBlender = ["Blender"];
     private static readonly TimeSpan ReleaseDelay = TimeSpan.FromMilliseconds(200);
@@ -35,7 +35,7 @@ public sealed class SettingsStoreTests
         Assert.True(File.Exists(temp.PathOf("settings.json")));
         var compact = WithoutWhitespace(File.ReadAllText(temp.PathOf("settings.json")));
         Assert.Contains("\"weeknightMinutes\":90", compact, StringComparison.Ordinal);
-        Assert.Contains("\"weekendNights\":[\"Friday\",\"Saturday\"]", compact, StringComparison.Ordinal);
+        Assert.Contains("\"weekendNights\":[\"Friday\",\"Saturday\",\"Sunday\"]", compact, StringComparison.Ordinal);
     }
 
     [Fact]

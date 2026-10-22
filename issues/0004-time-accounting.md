@@ -24,6 +24,7 @@ double-count." "Time accounting (night ends 4 AM, weeknight/weekend nights, week
 Monday 4 AM, saved to disk every minute)." Defaults: weeknight 90 min; weekend night 3 h; weekend
 nights Friday and Saturday; weekly cap 10 h. "Task Manager CAN kill the service ... Windows restarts
 it and the tally survives."
+Amended 2026-10-21 (issue 0008): weekend nights are Friday, Saturday, and Sunday.
 
 ## Design decisions (orchestrator)
 - A "night" is named by the calendar date (`DateOnly`) of `localTime - 4 h`. So 2026-10-24 03:59
@@ -80,7 +81,7 @@ A named section runs from its heading to the next heading of the same or higher 
    2026-10-23; **given** 2026-10-24 04:00, **Then** 2026-10-24. (Test `NightClockTests.NightEndsAt4AM`.)
 2. **Given** default settings, **When** `Budget.NightLimitMinutes` runs for night 2026-10-22
    (Thursday), **Then** it returns 90; for 2026-10-23 (Friday) 180; for 2026-10-24 (Saturday) 180;
-   for 2026-10-25 (Sunday) 90. (Test `BudgetTests.NightLimitByWeekday`.)
+   for 2026-10-25 (Sunday) 180. (Test `BudgetTests.NightLimitByWeekday`.)
 3. **Given** local times 2026-10-25 23:00 (Sunday), 2026-10-26 03:59 (Monday), and 2026-10-26 04:00,
    **When** `NightClock.WeekOf` runs, **Then** it returns 2026-10-19, 2026-10-19, and 2026-10-26.
    (Test `NightClockTests.WeekResetsMonday4AM`.)

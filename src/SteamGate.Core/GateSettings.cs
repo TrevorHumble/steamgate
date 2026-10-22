@@ -25,7 +25,7 @@ public sealed record GateSettings
 
     public int WeekendNightMinutes { get; init; } = 180;
 
-    public IReadOnlyList<DayOfWeek> WeekendNights { get; init; } = [DayOfWeek.Friday, DayOfWeek.Saturday];
+    public IReadOnlyList<DayOfWeek> WeekendNights { get; init; } = [DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
 
     public int WeeklyCapMinutes { get; init; } = 600;
 

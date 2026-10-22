@@ -14,7 +14,7 @@ public sealed class BudgetTests
         Assert.Equal(90, Budget.NightLimitMinutes(new DateOnly(2026, 10, 22), Defaults));
         Assert.Equal(180, Budget.NightLimitMinutes(new DateOnly(2026, 10, 23), Defaults));
         Assert.Equal(180, Budget.NightLimitMinutes(new DateOnly(2026, 10, 24), Defaults));
-        Assert.Equal(90, Budget.NightLimitMinutes(new DateOnly(2026, 10, 25), Defaults));
+        Assert.Equal(180, Budget.NightLimitMinutes(new DateOnly(2026, 10, 25), Defaults));
     }
 
     [Fact]

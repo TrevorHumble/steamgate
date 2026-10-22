@@ -20,7 +20,7 @@ Short form of DESIGN.md "## SteamGate product spec".
 - A Windows service in C# / .NET. No window, tray icon, or Alt-Tab entry. Windows restarts it if killed. Settings and tally live in a protected system folder (ProgramData, admin-only writes).
 - A small invisible helper runs in the user's own login, shows the warnings, and does the polite close. The service does the counting and the force-close. Each warning also plays a sound.
 - Counts wall-clock minutes while at least one Steam game is open; two games at once do not double-count.
-- Defaults: weeknight 90 min; weekend night 3 h; weekend nights are Friday and Saturday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap resets Monday 4 AM. The tally is saved to disk every minute.
+- Defaults: weeknight 90 min; weekend night 3 h; weekend nights are Friday, Saturday, and Sunday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap resets Monday 4 AM. The tally is saved to disk every minute.
 - Warnings at 10, 5, and 1 minutes left, each with a sound; at the limit a polite close, then a force close; any game started after the limit is closed.
 - Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a program to the not-counted list, disable, uninstall) waits the full cooldown. Any change that tightens a rule applies right away. The cooldown has a hard maximum of 7 days.
 - Not-counted list, pre-filled with Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared, editable from the status screen; adding waits the cooldown, removing applies now.
@@ -145,4 +145,4 @@ Full conventions (the authoritative banned-word list, naming, anti-slop) live in
 
 - Full design rationale and lifecycle definitions: [DESIGN.md](DESIGN.md)
 - Build sequence and segment order: [PLAN.md](PLAN.md)
-- Approved product spec, pinned unedited: [docs/approved-spec-2026-10-20.md](docs/approved-spec-2026-10-20.md)
+- Approved product spec, pinned unedited, with dated amendments appended below the original: [docs/approved-spec-2026-10-20.md](docs/approved-spec-2026-10-20.md)
