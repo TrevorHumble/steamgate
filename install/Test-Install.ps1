@@ -45,6 +45,45 @@ function Invoke-Script {
     if ($LASTEXITCODE -ne 0) { Fail "$Path exited with code $LASTEXITCODE" }
 }
 
+# The test-only uninstall. The uninstall script refuses removal until allowUninstall has waited out the cooldown, so this ends the service
+# first (it would save over the edit), then sets allowUninstall in settings.json itself, then runs the real uninstall script.
+# It ends only the service process: the helper, when a group started one, keeps running until the uninstall script ends it.
+# The settings.json edit happens whenever the file exists. With no service installed there is nothing to end, and the script just cleans up.
+function Invoke-TestUninstall {
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+        Clear-Recovery
+        $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'"
+        if ($service -and $service.ProcessId -gt 0) {
+            $servicePid = [int]$service.ProcessId
+            Stop-Process -Id $servicePid -Force -ErrorAction SilentlyContinue
+            $alive = @(Get-Process -Id $servicePid -ErrorAction SilentlyContinue)
+            if ($alive.Count -gt 0) { $alive | Wait-Process -Timeout 30 }
+        }
+        $registered = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($registered) { $registered.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)) }
+    }
+    if (Test-Path -LiteralPath $SettingsPath) { Set-AllowUninstallInFile }
+    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+}
+
+# Sets allowUninstall to true in settings.json by editing the text, so dates and everything else in the file stay as they are.
+# A file that does not parse is replaced by a minimal one.
+function Set-AllowUninstallInFile {
+    $text = [IO.File]::ReadAllText($SettingsPath)
+    $valid = $true
+    try { $null = $text | ConvertFrom-Json } catch { $valid = $false }
+    if (-not $valid -or ($text -notmatch '^\s*\{')) {
+        $text = '{"allowUninstall": true}'
+    } elseif ($text -match '"allowUninstall"\s*:') {
+        $text = $text -replace '"allowUninstall"\s*:\s*[^,}\s]+', '"allowUninstall": true'
+    } elseif ($text -match '^\s*\{\s*\}\s*$') {
+        $text = '{"allowUninstall": true}'
+    } else {
+        $text = $text -replace '^\s*\{', '{"allowUninstall": true,'
+    }
+    [IO.File]::WriteAllText($SettingsPath, $text)
+}
+
 function Wait-ForFile {
     param([string]$Path)
     $deadline = (Get-Date).AddSeconds(30)
@@ -118,6 +157,8 @@ function Reset-SteamGate {
     } else {
         Stop-SteamGateProcesses -Prefix 'RESET'
     }
+    # The service keeps its boot marker here. A missing key is fine.
+    if (Test-Path -LiteralPath $RegistryKey) { Remove-Item -LiteralPath $RegistryKey -Recurse -Force }
     Remove-FolderWithRetry -Path $ProgramDir
     Remove-FolderWithRetry -Path $DataDir
     Invoke-Script (Join-Path $PublishDir 'Install-SteamGate.ps1')
@@ -322,7 +363,7 @@ if ($kept -ne 75) { Fail "weeknightMinutes is $kept after the upgrade, expected 
 Write-Host 'UPGRADED'
 
 # 8. Uninstall.
-Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+Invoke-TestUninstall
 $gone = $false
 for ($second = 0; $second -lt 30; $second++) {
     if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { $gone = $true; break }
@@ -354,7 +395,7 @@ try {
 } finally {
     Remove-FakeSteamRoot
     # The script ends uninstalled, as the first group left it.
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # 10. Time accounting: a running game is counted, and the count survives the service being ended.
@@ -399,7 +440,7 @@ try {
 } finally {
     Remove-FakeSteamRoot
     # The script ends uninstalled, as the earlier groups left it.
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # Helpers for the pipe checks.
@@ -483,7 +524,7 @@ try {
 } finally {
     Remove-FakeSteamRoot
     # The script ends uninstalled, as the earlier groups left it.
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # 12. The pipe: bad clients cannot stop the service, and a good client is heard.
@@ -520,7 +561,7 @@ try {
     Write-Host 'PIPE OK'
 } finally {
     foreach ($client in $clients) { $client.Dispose() }
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # 12b and 12c. A standard user's rights are enough: the probe and the real helper both reach the pipe without admin.
@@ -561,7 +602,7 @@ try {
         } catch { Write-Host "cleanup: $($_.Exception.Message)" }
     }
     try { Remove-FolderWithRetry -Path $probeDir } catch { Write-Host "cleanup: $($_.Exception.Message)" }
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # 13. Another process holds the pipe name: the service keeps running and logs it, then takes the pipe back when it is free.
@@ -601,7 +642,7 @@ try {
     Write-Host 'PIPE RECOVERED'
 } finally {
     if ($null -ne $squatter) { $squatter.Dispose() }
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
 }
 
 # 14. A running helper does not stop the uninstall.
@@ -610,7 +651,7 @@ try {
     Reset-SteamGate @{}
     $runningHelper = Start-Process -FilePath (Join-Path $ProgramDir 'SteamGate.Helper.exe') -PassThru
     Start-Sleep -Seconds 3
-    Invoke-Script (Join-Path $PublishDir 'Uninstall-SteamGate.ps1')
+    Invoke-TestUninstall
     $gone = $false
     for ($second = 0; $second -lt 30; $second++) {
         if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { $gone = $true; break }
@@ -621,4 +662,138 @@ try {
     Write-Host 'UNINSTALLED'
 } finally {
     if ($null -ne $runningHelper) { Stop-Process -Id $runningHelper.Id -Force -ErrorAction SilentlyContinue }
+}
+
+# Helpers for the lock checks.
+
+# Sends one pipe line through PipeProbe.ps1 as the admin test runner and returns the reply it got, parsed.
+# The probe hello is "status"; -Line goes right after it and -ReplyFile receives the first reply line.
+function Send-PipeRequest {
+    param([Parameter(Mandatory)][string]$Json, [Parameter(Mandatory)][string]$RequestId, [int]$Seconds = 25)
+    $out = Join-Path $FakeRootBase 'request-probe.txt'
+    $replyFile = Join-Path $FakeRootBase 'request-reply.txt'
+    Remove-Item -LiteralPath $out, $replyFile -Force -ErrorAction SilentlyContinue
+    $quoted = $Json.Replace('"', '\"')
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ProbeScript`"", '-OutFile', "`"$out`"", '-WaitSeconds', '10', '-HoldSeconds', '0', '-Line', "`"$quoted`"", '-ReplyFile', "`"$replyFile`"")
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -WorkingDirectory $env:SystemRoot | Out-Null
+    $text = Wait-ProbeResult -OutFile $replyFile -Seconds $Seconds -What "the request probe for $RequestId"
+    if ($text -like 'FAILED*') { Fail "the request probe for $RequestId wrote ""$text""" }
+    $reply = $text | ConvertFrom-Json
+    if ($reply.type -ne 'reply' -or $reply.requestId -ne $RequestId) { Fail "the reply to $RequestId was ""$text""" }
+    return $reply
+}
+
+# Reads settings.json until $Check returns true for it, or fails after $Seconds. The service replaces the file atomically,
+# so a read can collide with a save; such a read is just tried again.
+function Wait-Settings {
+    param([scriptblock]$Check, [int]$Seconds, [string]$What)
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ($true) {
+        try {
+            $json = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+            if (& $Check $json) { return $json }
+        } catch {
+            # Read again.
+        }
+        if ((Get-Date) -gt $deadline) { Fail "settings.json did not show $What within $Seconds seconds" }
+        Start-Sleep -Seconds 1
+    }
+}
+
+# 15. The lock: a loosening request waits the cooldown, and a tightening one applies at once.
+try {
+    Reset-SteamGate @{}
+    $raise = Send-PipeRequest -RequestId 'r1' -Json '{"type":"request","requestId":"r1","field":"weeknightMinutes","number":120}'
+    if (-not $raise.message.StartsWith('Waits 48 h')) { Fail "the reply to the raise was ""$($raise.message)"", expected it to start with ""Waits 48 h""" }
+    Wait-Settings -Seconds 70 -What 'weeknightMinutes 90 with one pending entry' -Check {
+        param($json)
+        return (($json.weeknightMinutes -eq 90) -and (@($json.pending).Count -eq 1) -and ($json.pending[0].number -eq 120))
+    } | Out-Null
+    Write-Host 'PENDING OK'
+
+    $lower = Send-PipeRequest -RequestId 'r2' -Json '{"type":"request","requestId":"r2","field":"weeknightMinutes","number":60}'
+    if ($lower.message -ne 'Applied now.') { Fail "the reply to the tightening was ""$($lower.message)"", expected ""Applied now.""" }
+    Wait-Settings -Seconds 70 -What 'weeknightMinutes 60 with the raise still pending' -Check {
+        param($json)
+        return (($json.weeknightMinutes -eq 60) -and (@($json.pending).Count -eq 1) -and ($json.pending[0].number -eq 120))
+    } | Out-Null
+    Write-Host 'TIGHTEN OK'
+} finally {
+    Invoke-TestUninstall
+}
+
+# 16. The lock tightens for real: with the limits lowered to 0, a game that starts is closed.
+try {
+    Reset-SteamGate @{}
+    $servicePid = New-FakeSteamRoot
+    $mark = Wait-SteamReady -ServicePid $servicePid -Seconds 30
+    foreach ($field in @('weeknightMinutes', 'weekendNightMinutes')) {
+        $requestId = "z-$field"
+        $answer = Send-PipeRequest -RequestId $requestId -Json ('{"type":"request","requestId":"' + $requestId + '","field":"' + $field + '","number":0}')
+        if ($answer.message -ne 'Applied now.') { Fail "the reply to $field 0 was ""$($answer.message)"", expected ""Applied now.""" }
+    }
+    Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '600', '127.0.0.1' -WindowStyle Hidden | Out-Null
+    if (-not (Wait-LogLine -Pattern 'polite close FakeGame\s*$' -After $mark -Seconds 90)) { Fail 'service.log has no "polite close FakeGame" within 90 seconds of the limits being lowered to 0' }
+    Write-Host 'TIGHTEN ENFORCED'
+} finally {
+    Remove-FakeSteamRoot
+    Invoke-TestUninstall
+}
+
+# 17. Uninstall is refused until allowUninstall has waited out the cooldown.
+$uninstallScript = Join-Path $PublishDir 'Uninstall-SteamGate.ps1'
+$refusalText = 'Removal is not allowed yet. Request it in SteamGate; it applies after the cooldown (until its status screen ships, an admin sets allowUninstall to true in settings.json and runs the uninstall right away).'
+
+# Runs the real uninstall script directly and fails unless it exits 1 with the refusal printed and the service still running.
+function Assert-UninstallRefused {
+    param([string]$What)
+    $global:LASTEXITCODE = 0
+    $printed = (& $uninstallScript *>&1 | Out-String)
+    if ($LASTEXITCODE -ne 1) { Fail "the uninstall $What exited with code $LASTEXITCODE, expected 1" }
+    if (-not $printed.Contains($refusalText)) { Fail "the uninstall $What printed ""$printed"", expected the refusal" }
+    if ((Get-ServicePid) -eq 0) { Fail "the service is not running after the refused uninstall $What" }
+}
+
+# Replaces settings.json the way a careful admin would: write a temp file, then move it over.
+function Set-SettingsFileText {
+    param([string]$Text)
+    $temp = $SettingsPath + '.edit'
+    [IO.File]::WriteAllText($temp, $Text)
+    Move-Item -LiteralPath $temp -Destination $SettingsPath -Force
+}
+
+try {
+    Reset-SteamGate @{}
+    Assert-UninstallRefused -What 'with allowUninstall false'
+    Write-Host 'UNINSTALL REFUSED'
+
+    $json = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+    $json.PSObject.Properties.Remove('allowUninstall')
+    Set-SettingsFileText -Text ($json | ConvertTo-Json -Depth 5)
+    Assert-UninstallRefused -What 'with allowUninstall missing'
+
+    $json | Add-Member -NotePropertyName allowUninstall -NotePropertyValue 'true' -Force
+    Set-SettingsFileText -Text ($json | ConvertTo-Json -Depth 5)
+    Assert-UninstallRefused -What 'with allowUninstall as the text "true"'
+
+    Set-SettingsFileText -Text '{'
+    Assert-UninstallRefused -What 'with settings.json unreadable'
+
+    Reset-SteamGate @{ cooldownHours = 0 }
+    $allow = Send-PipeRequest -RequestId 'u1' -Seconds 30 -Json '{"type":"request","requestId":"u1","field":"allowUninstall","flag":true}'
+    if ($allow.message -ne 'Applied now.') { Fail "the reply to allowUninstall true was ""$($allow.message)"", expected ""Applied now.""" }
+    $global:LASTEXITCODE = 0
+    & $uninstallScript
+    if ($LASTEXITCODE -ne 0) { Fail "the allowed uninstall exited with code $LASTEXITCODE" }
+    $gone = $false
+    for ($second = 0; $second -lt 30; $second++) {
+        if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) { $gone = $true; break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $gone) { Fail 'the service is still listed 30 seconds after the allowed uninstall' }
+    if (Test-Path -LiteralPath $RegistryKey) { Fail "$RegistryKey still exists after the allowed uninstall" }
+    if (Test-Path -LiteralPath $DataDir) { Fail "$DataDir still exists after the allowed uninstall" }
+    Write-Host 'UNINSTALL UNLOCKED'
+} finally {
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Invoke-TestUninstall }
 }

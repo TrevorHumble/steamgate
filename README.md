@@ -10,7 +10,7 @@ Open the repo's Actions tab, pick the latest green CI run on `main`, and downloa
 powershell -ExecutionPolicy Bypass -File .\Install-SteamGate.ps1
 ```
 
-Artifacts expire after 90 days. If none is listed, open the Actions tab, choose CI, and press Run workflow to make a fresh one. To remove SteamGate, run `Uninstall-SteamGate.ps1` the same way.
+Artifacts expire after 90 days. If none is listed, open the Actions tab, choose CI, and press Run workflow to make a fresh one. Removal must first be requested in SteamGate's status screen; it is allowed after the cooldown. Then run `Uninstall-SteamGate.ps1` the same way. Until the status screen ships, an admin can allow removal by editing `%ProgramData%\SteamGate\settings.json` to set `"allowUninstall": true` and then running `Uninstall-SteamGate.ps1` right away (SteamGate rewrites the file on its next save).
 
 ---
 

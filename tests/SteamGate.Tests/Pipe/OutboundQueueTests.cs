@@ -8,7 +8,8 @@ public sealed class OutboundQueueTests
     [Fact]
     public void FullQueueRejects()
     {
-        var queue = new OutboundQueue();
+        using var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
 
         for (var posted = 1; posted <= 16; posted++)
         {
@@ -21,7 +22,8 @@ public sealed class OutboundQueueTests
     [Fact]
     public async Task MessagesComeOutInOrderAndMakeRoom()
     {
-        var queue = new OutboundQueue();
+        using var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
         for (var posted = 1; posted <= 16; posted++)
         {
             queue.TryPost(new WarnMessage(posted));
@@ -40,7 +42,8 @@ public sealed class OutboundQueueTests
     [Fact]
     public void ACompletedQueueRejects()
     {
-        var queue = new OutboundQueue();
+        using var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
         queue.Complete();
 
         Assert.False(queue.TryPost(new WarnMessage(1)));
@@ -50,5 +53,44 @@ public sealed class OutboundQueueTests
     public void CapacityIsSixteen()
     {
         Assert.Equal(16, OutboundQueue.Capacity);
+    }
+
+    [Fact]
+    public void AFailedPostCancelsTheConnection()
+    {
+        using var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
+        for (var posted = 1; posted <= 16; posted++)
+        {
+            Assert.True(queue.TryPost(new WarnMessage(posted)));
+            Assert.False(connection.IsCancellationRequested);
+        }
+
+        Assert.False(queue.TryPost(new WarnMessage(17)));
+
+        Assert.True(connection.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void APostToAClosedQueueCancelsTheConnection()
+    {
+        using var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
+        queue.Complete();
+
+        Assert.False(queue.TryPost(new WarnMessage(1)));
+
+        Assert.True(connection.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void ALatePostAfterTheSourceIsDisposedReturnsFalseWithoutThrowing()
+    {
+        var connection = new CancellationTokenSource();
+        var queue = new OutboundQueue(connection);
+        queue.Complete();
+        connection.Dispose();
+
+        Assert.False(queue.TryPost(new WarnMessage(1)));
     }
 }

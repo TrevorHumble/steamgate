@@ -8,6 +8,7 @@ using System.Threading.Channels;
 using Microsoft.Win32.SafeHandles;
 using SteamGate.Core;
 using SteamGate.Core.Pipe;
+using SteamGate.Core.Rules;
 
 namespace SteamGate.Service;
 
@@ -29,7 +30,9 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private readonly List<Connection> _clients = [];
     private readonly SemaphoreSlim _released = new(0);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly HelloLogLimiter _helloLog = new();
+    private readonly ChannelWriter<SettingsCommand> _commands;
+    private readonly RateLimitedLog _helloLog;
+    private readonly RateLimitedLog _requestLog;
     private int _activeConnections;
     private Task? _loop;
     private int _openInstances;
@@ -37,9 +40,12 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private string _lastUnavailable = string.Empty;
     private TimeSpan _lastUnavailableAt = TimeSpan.MinValue;
 
-    public PipeServer(GateLog log)
+    public PipeServer(GateLog log, Channel<SettingsCommand> commands, RateLimitedLog requestLog)
     {
         _log = log;
+        _commands = commands.Writer;
+        _requestLog = requestLog;
+        _helloLog = new RateLimitedLog(log, "pipe hello suppressed");
     }
 
     /// <summary>True when a connected client is a verified helper.</summary>
@@ -317,6 +323,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
             }
 
             connection.Pid = ClientProcessId(pipe);
+            connection.SessionId = ClientSessionId(pipe);
             LogHello(hello.Role, connection.Pid);
             var verified = hello.Role == HelloMessage.HelperRole && IsVerifiedHelper(connection.Pid);
 
@@ -327,7 +334,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
             }
 
             var writer = WriteLoopAsync(pipe, connection);
-            await ReadLoopAsync(pipe, connectionCts.Token).ConfigureAwait(false);
+            await ReadLoopAsync(pipe, connection).ConfigureAwait(false);
             connection.Drop();
             await writer.ConfigureAwait(false);
         }
@@ -368,17 +375,69 @@ internal sealed class PipeServer : IHostedService, IDisposable
         }
     }
 
-    // After the hello there is no idle limit. A line that is too long, malformed, unknown, or a warn or close ends the connection.
-    private static async Task ReadLoopAsync(NamedPipeServerStream pipe, CancellationToken connectionToken)
+    // After the hello a line that is too long, malformed, unknown, or not allowed (ConnectionRules) ends the connection. A request or
+    // cancel goes to the worker. A connection that is not a verified helper is dropped when no complete line arrives for the idle limit.
+    private async Task ReadLoopAsync(NamedPipeServerStream pipe, Connection connection)
     {
-        while (!connectionToken.IsCancellationRequested)
+        while (!connection.Token.IsCancellationRequested)
         {
-            var line = await PipeLineReader.ReadLineAsync(pipe, PipeLineReader.MaxLineBytes, connectionToken).ConfigureAwait(false);
+            string? line;
+            using (var idle = CancellationTokenSource.CreateLinkedTokenSource(connection.Token))
+            {
+                if (ConnectionRules.IdleLimitFor(connection.Verified) is { } limit)
+                {
+                    idle.CancelAfter(limit);
+                }
+
+                try
+                {
+                    line = await PipeLineReader.ReadLineAsync(pipe, PipeLineReader.MaxLineBytes, idle.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!connection.Token.IsCancellationRequested)
+                {
+                    // Idle too long.
+                    return;
+                }
+            }
+
             var message = PipeMessage.Parse(line);
             if (message is null || ConnectionRules.DropsOnClientMessage(message))
             {
                 return;
             }
+
+            Submit(connection, message);
+        }
+    }
+
+    // Hands a request or cancel to the worker through the channel. A full channel is answered at once; the server never waits for the worker.
+    private void Submit(Connection connection, PipeMessage message)
+    {
+        var pid = (int)connection.Pid;
+        switch (message)
+        {
+            case RequestMessage request when ChangeMessages.ToRequest(request) is { } change:
+                if (!_commands.TryWrite(new SettingsCommand(request.RequestId, change, null, connection.Queue, pid, connection.SessionId)))
+                {
+                    _requestLog.Write(ChangeLog.Request(request.Field, ChangeLog.Busy, pid, connection.SessionId));
+                    connection.Queue.TryPost(ChangeMessages.Failure(request.RequestId, ChangeReply.Busy));
+                }
+
+                break;
+            case RequestMessage request:
+                _requestLog.Write(ChangeLog.Request(request.Field, ChangeLog.ResultName(ChangeResult.Refused), pid, connection.SessionId));
+                connection.Queue.TryPost(ChangeMessages.Failure(request.RequestId, ChangeReply.NotAllowed));
+                break;
+            case CancelMessage cancel:
+                if (!_commands.TryWrite(new SettingsCommand(cancel.RequestId, null, cancel.Id, connection.Queue, pid, connection.SessionId)))
+                {
+                    _requestLog.Write(ChangeLog.Cancel(ChangeLog.Busy, pid, connection.SessionId));
+                    connection.Queue.TryPost(ChangeMessages.Failure(cancel.RequestId, ChangeReply.Busy));
+                }
+
+                break;
+            default:
+                break;
         }
     }
 
@@ -400,20 +459,8 @@ internal sealed class PipeServer : IHostedService, IDisposable
     }
 
     // At most 20 hello lines a minute, then one notice a minute, so a client that reconnects in a loop cannot push earlier events out of the rotated log.
-    private void LogHello(string role, uint pid)
-    {
-        switch (_helloLog.Next(_clock.Elapsed))
-        {
-            case HelloLogAction.Log:
-                _log.Write(FormattableString.Invariant($"pipe hello role={role} pid={pid}"));
-                break;
-            case HelloLogAction.NoticeSuppressed:
-                _log.Write("pipe hello suppressed");
-                break;
-            default:
-                break;
-        }
-    }
+    private void LogHello(string role, uint pid) =>
+        _helloLog.Write(FormattableString.Invariant($"pipe hello role={role} pid={pid}"));
 
     private bool Register(Connection connection, bool verified)
     {
@@ -466,6 +513,9 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private static uint ClientProcessId(NamedPipeServerStream pipe) =>
         GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid) ? pid : 0;
 
+    private static int ClientSessionId(NamedPipeServerStream pipe) =>
+        GetNamedPipeClientSessionId(pipe.SafePipeHandle, out var session) ? (int)session : -1;
+
     private sealed class Connection
     {
         private readonly CancellationTokenSource _cts;
@@ -475,17 +525,20 @@ internal sealed class PipeServer : IHostedService, IDisposable
             Id = id;
             _cts = cts;
             Token = cts.Token;
+            Queue = new OutboundQueue(cts);
         }
 
         public long Id { get; }
 
         public CancellationToken Token { get; }
 
-        public OutboundQueue Queue { get; } = new();
+        public OutboundQueue Queue { get; }
 
         public volatile bool Verified;
 
         public uint Pid { get; set; }
+
+        public int SessionId { get; set; }
 
         public void Drop()
         {
@@ -504,6 +557,11 @@ internal sealed class PipeServer : IHostedService, IDisposable
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeClientSessionId(SafePipeHandle pipe, out uint clientSessionId);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Threading.Channels;
 using SteamGate.Core;
 using SteamGate.Core.Accounting;
 using SteamGate.Core.Enforcement;
 using SteamGate.Core.Pipe;
+using SteamGate.Core.Rules;
 using SteamGate.Core.Steam;
 
 namespace SteamGate.Service;
@@ -26,16 +28,27 @@ internal sealed class GateWorker : BackgroundService
     // About every 30 seconds the worker rechecks the helpers and starts one if none is connected.
     private const int HelperCheckTicks = 6;
 
+    // While anything is pending the settings are saved about once a minute, to record the countdown.
+    private const int PendingSaveTicks = 12;
+
     private readonly GateLog _log;
     private readonly PipeServer _pipe;
     private readonly HelperLauncher _launcher;
     private readonly SnapshotHolder _snapshots;
     private readonly Stopwatch _sinceStart = Stopwatch.StartNew();
     private readonly SteamLibraries _steam = new();
+    private readonly ChannelReader<SettingsCommand> _commands;
+    private readonly RateLimitedLog _requestLog;
     private long _tickCount;
 
-    // The settings loaded at start; a later issue makes them follow changes.
+    // The one in-memory copy of the settings, loaded at start and never re-read from disk. The lock changes it inside RunTickAsync,
+    // before the matcher, Budget, and the planner read it, so a change that applies takes effect in the same tick.
+    private readonly SettingsStore _settingsStore = new(SteamGatePaths.DataFolder);
     private GateSettings _settings = GateSettings.Defaults;
+    private bool _settingsDirty;
+    private Guid? _bootId;
+    private bool _firstLockTick = true;
+    private long _prevUptimeMs;
 
     private readonly TallyStore _tallyStore = new(SteamGatePaths.DataFolder);
     private Tally _tally = Tally.Empty;
@@ -44,11 +57,13 @@ internal sealed class GateWorker : BackgroundService
     // Enforcement: the planner's memory, started from this service's own start time.
     private PlannerState _planner = PlannerState.Initial(DateTime.UtcNow);
 
-    public GateWorker(SnapshotHolder snapshots, GateLog log, PipeServer pipe)
+    public GateWorker(SnapshotHolder snapshots, GateLog log, PipeServer pipe, Channel<SettingsCommand> commands, RateLimitedLog requestLog)
     {
         _snapshots = snapshots;
         _log = log;
         _pipe = pipe;
+        _commands = commands.Reader;
+        _requestLog = requestLog;
         _launcher = new HelperLauncher(log);
     }
 
@@ -61,8 +76,9 @@ internal sealed class GateWorker : BackgroundService
             // Return to the caller before any file work.
             await Task.Yield();
 
-            var loaded = new SettingsStore(SteamGatePaths.DataFolder).Load();
+            var loaded = _settingsStore.Load();
             _settings = loaded.Value;
+            _bootId = BootMarker.Open();
             if (loaded.Corrupt)
             {
                 _log.Write("settings corrupt, defaults restored");
@@ -98,6 +114,10 @@ internal sealed class GateWorker : BackgroundService
             }
 
             SaveTally();
+            if (_settingsDirty || _settings.Pending.Count > 0)
+            {
+                SaveSettings(DateTime.UtcNow);
+            }
         }
         catch (Exception ex) when (!(ex is OperationCanceledException && stoppingToken.IsCancellationRequested))
         {
@@ -133,6 +153,11 @@ internal sealed class GateWorker : BackgroundService
             }
         }
 
+        // One clock reading per tick, so the local and UTC times agree.
+        var now = DateTimeOffset.Now;
+        var localNow = now.DateTime;
+        RunLock(now.UtcDateTime);
+
         var (libraries, installed, commonTargets, refreshed) = _steam.Refresh(
             SteamRootLocator.Locate,
             _sinceStart.Elapsed,
@@ -159,9 +184,6 @@ internal sealed class GateWorker : BackgroundService
             _log.Write("game stopped " + folder);
         }
 
-        // One clock reading per tick, so the local and UTC times agree.
-        var now = DateTimeOffset.Now;
-        var localNow = now.DateTime;
         CountTime(games, localNow, now.UtcDateTime);
 
         var remaining = Budget.RemainingSeconds(_tally, _settings, localNow);
@@ -175,10 +197,84 @@ internal sealed class GateWorker : BackgroundService
             Tally = _tally,
             RemainingSeconds = remaining,
             TonightLimitMinutes = Budget.NightLimitMinutes(NightClock.NightOf(localNow), _settings),
+            Settings = _settings,
         };
         Enforce(snapshot);
         _snapshots.Publish(snapshot with { HelperConnected = _pipe.HelperConnected });
         return Task.CompletedTask;
+    }
+
+    // The lock, in this order: count the pending entries down, answer the requests that arrived, apply the entries that are due.
+    // The one in-memory settings object is replaced here, so everything later in the tick reads the result.
+    private void RunLock(DateTime utcNow)
+    {
+        var uptimeMs = Environment.TickCount64;
+        var clock = _settings.Clock;
+        var sameBoot = _bootId is { } boot && clock?.BootId == boot;
+        var step = ChangeEngine.StepSeconds(_firstLockTick, sameBoot, utcNow, _prevUptimeMs, uptimeMs, clock?.LastSavedUtc, clock?.LastSavedUptimeMs);
+        _firstLockTick = false;
+        _prevUptimeMs = uptimeMs;
+
+        var settings = ChangeEngine.Countdown(_settings, step);
+        var answered = new List<(SettingsCommand Command, ChangeOutcome Outcome)>();
+        while (_commands.TryRead(out var command))
+        {
+            var outcome = command.Request is { } request
+                ? ChangeEngine.Request(settings, request, utcNow, Guid.NewGuid)
+                : ChangeEngine.Cancel(settings, command.CancelId ?? Guid.Empty);
+            settings = outcome.Updated;
+            _settingsDirty |= outcome.Changed;
+            var result = ChangeLog.ResultName(outcome.Result);
+            _requestLog.Write(command.Request is { } logged
+                ? ChangeLog.Request(logged.Field, result, command.ClientPid, command.SessionId)
+                : ChangeLog.Cancel(result, command.ClientPid, command.SessionId));
+            answered.Add((command, outcome));
+        }
+
+        var (updated, applied, skipped) = ChangeEngine.ApplyDue(settings);
+        settings = updated;
+        foreach (var entry in applied)
+        {
+            _log.Write(ChangeLog.Applied(entry));
+        }
+
+        foreach (var entry in skipped)
+        {
+            _log.Write(ChangeLog.Skipped(entry));
+        }
+
+        _settingsDirty |= applied.Count > 0 || skipped.Count > 0;
+        _settings = settings;
+
+        var saveFailed = false;
+        if (_settingsDirty || (settings.Pending.Count > 0 && _tickCount % PendingSaveTicks == 0))
+        {
+            saveFailed = !SaveSettings(utcNow);
+        }
+
+        // Replies go out after the save attempt, so each can say whether the change is only held in memory.
+        foreach (var (command, outcome) in answered)
+        {
+            command.Replies.TryPost(ChangeMessages.Reply(command.RequestId, outcome, saveFailed));
+        }
+    }
+
+    // Saves with the clock bookkeeping stamped in. A failed save leaves the settings marked unsaved, so the next tick tries again.
+    private bool SaveSettings(DateTime utcNow)
+    {
+        var stamped = _settings with { Clock = new LockClock(utcNow, Environment.TickCount64, _bootId) };
+        if (!_settingsStore.Save(stamped))
+        {
+            _log.Write("save failed settings.json");
+
+            // Unsaved: the next tick tries again, even when this save was only the once-a-minute countdown record.
+            _settingsDirty = true;
+            return false;
+        }
+
+        _settings = stamped;
+        _settingsDirty = false;
+        return true;
     }
 
     // Runs the planner once and carries out what it asks. A warning that no helper could show is kept and shown when one connects.

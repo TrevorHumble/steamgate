@@ -19,4 +19,7 @@ public sealed record GateSnapshot(IReadOnlyList<RunningGame> Games, IReadOnlyLis
 
     /// <summary>True when a verified helper (the overlay program in the user's session) is connected to the pipe.</summary>
     public bool HelperConnected { get; init; }
+
+    /// <summary>The settings the worker holds, including pending changes. Null until the first tick has loaded them; readers treat null as not yet loaded.</summary>
+    public GateSettings? Settings { get; init; }
 }

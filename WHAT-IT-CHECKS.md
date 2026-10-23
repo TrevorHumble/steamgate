@@ -22,6 +22,8 @@ When the checks pass (the green checkmark on a build), these things have been co
 
 - **A game started after the limit is closed.** Every build sets the limit to zero on a Windows test machine, starts a fake game, and confirms the service logs the polite close and then ends the game within 90 seconds. The same run confirms that a bad or oversized message on the warning pipe cannot stop SteamGate, that a standard user can reach the pipe, and that SteamGate keeps running and takes the pipe back when another program holds it.
 
+- **The lock holds.** CI proves an uninstall is refused until removal is allowed, and unit tests prove allowing removal waits the full cooldown, a loosening change waits, and a tightening change applies at once.
+
 These run on their own, the same way every time, on every build. You don't have to ask for them or stand over them.
 
 ---

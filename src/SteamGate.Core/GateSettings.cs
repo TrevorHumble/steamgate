@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using SteamGate.Core.Rules;
 
 namespace SteamGate.Core;
 
@@ -35,4 +36,13 @@ public sealed record GateSettings
     public IReadOnlyList<string> NotCounted { get; init; } = [.. Approved.Select(entry => entry.Folder)];
 
     public bool Enabled { get; init; } = true;
+
+    /// <summary>Loosening changes still waiting out the cooldown (the lock). Added in 0006; a file without it loads as empty.</summary>
+    public IReadOnlyList<PendingChange> Pending { get; init; } = [];
+
+    /// <summary>True once a request to allow removal has waited out the cooldown; the uninstall script refuses until it is true.</summary>
+    public bool AllowUninstall { get; init; }
+
+    /// <summary>The countdown's bookkeeping. Null until the first save by a version that has the lock.</summary>
+    public LockClock? Clock { get; init; }
 }

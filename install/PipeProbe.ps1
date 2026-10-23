@@ -2,11 +2,17 @@
 # It opens the pipe with exactly the rights the pipe grants a standard user (never generic read or write), sends
 # {"type":"hello","role":"status"}, reads the pipe's owner, and writes "CONNECTED <owner SID>" to -OutFile. It records the owner
 # but does not refuse a pipe over it; the install test checks the owner.
-# On failure it writes "FAILED <reason>" to -OutFile and exits 1. Never run this on a machine you use.
+# If it cannot connect it writes "FAILED <reason>" to -OutFile and exits 1. If sending -Line fails, or no reply comes, it writes
+# "FAILED <reason>" to -ReplyFile (when given), leaves "CONNECTED <owner SID>" in -OutFile, and exits 1.
+# -Line is one extra line to send right after the hello (the newline is added). -ReplyFile is where to write the first reply
+# line the server sends back, or "FAILED no reply" when none comes within 10 seconds; without -ReplyFile it does not wait for one.
+# Without -Line and -ReplyFile it behaves as it always has. Never run this on a machine you use.
 param(
     [Parameter(Mandatory)][string]$OutFile,
     [int]$WaitSeconds = 20,
-    [int]$HoldSeconds = 3
+    [int]$HoldSeconds = 3,
+    [string]$Line = '',
+    [string]$ReplyFile = ''
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -32,6 +38,12 @@ public static class SteamGateProbe
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool WriteFile(SafeFileHandle handle, byte[] buffer, int count, out int written, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ReadFile(SafeFileHandle handle, byte[] buffer, int count, out int read, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool PeekNamedPipe(SafeFileHandle handle, IntPtr buffer, int size, IntPtr bytesRead, out int available, IntPtr bytesLeft);
 
     [DllImport("advapi32.dll")]
     private static extern uint GetSecurityInfo(SafeFileHandle handle, int type, uint info, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
@@ -70,6 +82,46 @@ public static class SteamGateProbe
         }
         return handle;
     }
+
+    // Sends one more line (and its newline) on an open connection. False when the write fails.
+    public static bool SendLine(SafeFileHandle handle, string line)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(line + "\n");
+        int written;
+        return WriteFile(handle, bytes, bytes.Length, out written, IntPtr.Zero);
+    }
+
+    // Reads one line from the server, polling so a silent server cannot block it. Null when none arrives in time or the pipe closes.
+    public static string ReadLine(SafeFileHandle handle, int timeoutMs)
+    {
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        System.Collections.Generic.List<byte> line = new System.Collections.Generic.List<byte>();
+        byte[] one = new byte[1];
+        while (DateTime.UtcNow < deadline)
+        {
+            int available;
+            if (!PeekNamedPipe(handle, IntPtr.Zero, 0, IntPtr.Zero, out available, IntPtr.Zero))
+            {
+                return null;
+            }
+            if (available == 0)
+            {
+                System.Threading.Thread.Sleep(50);
+                continue;
+            }
+            int read;
+            if (!ReadFile(handle, one, 1, out read, IntPtr.Zero) || read == 0)
+            {
+                return null;
+            }
+            if (one[0] == (byte)'\n')
+            {
+                return Encoding.UTF8.GetString(line.ToArray()).TrimEnd('\r');
+            }
+            line.Add(one[0]);
+        }
+        return null;
+    }
 }
 '@
 
@@ -81,6 +133,22 @@ while ($true) {
     $handle = [SteamGateProbe]::Open([ref]$sid, [ref]$openError)
     if ($null -ne $handle) {
         [IO.File]::WriteAllText($OutFile, "CONNECTED $sid")
+        if ($Line -ne '') {
+            if (-not [SteamGateProbe]::SendLine($handle, $Line)) {
+                if ($ReplyFile -ne '') { [IO.File]::WriteAllText($ReplyFile, 'FAILED could not send the line') }
+                $handle.Dispose()
+                exit 1
+            }
+        }
+        if ($ReplyFile -ne '') {
+            $reply = [SteamGateProbe]::ReadLine($handle, 10000)
+            if ($null -eq $reply) {
+                [IO.File]::WriteAllText($ReplyFile, 'FAILED no reply')
+                $handle.Dispose()
+                exit 1
+            }
+            [IO.File]::WriteAllText($ReplyFile, $reply)
+        }
         Start-Sleep -Seconds $HoldSeconds
         $handle.Dispose()
         exit 0

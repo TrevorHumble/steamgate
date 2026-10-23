@@ -1,12 +1,12 @@
 namespace SteamGate.Core.Pipe;
 
-/// <summary>What to write to the log for one valid hello.</summary>
-public enum HelloLogAction
+/// <summary>What to write to the log for one line that is rate limited.</summary>
+public enum LogAction
 {
-    /// <summary>Write the normal hello line.</summary>
+    /// <summary>Write the normal line.</summary>
     Log,
 
-    /// <summary>Write one notice that further hello lines are being left out, and nothing more this minute.</summary>
+    /// <summary>Write one notice that further lines are being left out, and nothing more this minute.</summary>
     NoticeSuppressed,
 
     /// <summary>Write nothing.</summary>
@@ -14,10 +14,10 @@ public enum HelloLogAction
 }
 
 /// <summary>
-/// Keeps a client that reconnects in a loop from filling the rotated log: at most MaxPerMinute hello lines per minute, then one
-/// notice per minute. Minutes are counted from the first hello after the previous minute ended.
+/// Keeps a client that reconnects or sends requests in a loop from filling the rotated log: at most MaxPerMinute lines per minute, then one
+/// notice per minute. Minutes are counted from the first line after the previous minute ended.
 /// </summary>
-public sealed class HelloLogLimiter
+public sealed class LogLimiter
 {
     public const int MaxPerMinute = 20;
 
@@ -29,7 +29,7 @@ public sealed class HelloLogLimiter
     private bool _noticeWritten;
 
     /// <param name="now">A clock that never goes back, such as a Stopwatch reading.</param>
-    public HelloLogAction Next(TimeSpan now)
+    public LogAction Next(TimeSpan now)
     {
         lock (_lock)
         {
@@ -43,16 +43,16 @@ public sealed class HelloLogLimiter
             if (_logged < MaxPerMinute)
             {
                 _logged++;
-                return HelloLogAction.Log;
+                return LogAction.Log;
             }
 
             if (_noticeWritten)
             {
-                return HelloLogAction.Skip;
+                return LogAction.Skip;
             }
 
             _noticeWritten = true;
-            return HelloLogAction.NoticeSuppressed;
+            return LogAction.NoticeSuppressed;
         }
     }
 }

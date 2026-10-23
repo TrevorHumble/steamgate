@@ -25,11 +25,35 @@ public sealed class ConnectionRulesTests
     }
 
     [Fact]
-    public void ClientsMaySendOnlyHello()
+    public void AfterHelloClientsMaySendOnlyRequestAndCancel()
     {
         Assert.True(ConnectionRules.DropsOnClientMessage(new WarnMessage(1)));
         Assert.True(ConnectionRules.DropsOnClientMessage(new CloseMessage("g", "g", [])));
-        Assert.False(ConnectionRules.DropsOnClientMessage(new HelloMessage("status")));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new ReplyMessage("r", true, "x", null)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new HelloMessage("status")));
+        Assert.False(ConnectionRules.DropsOnClientMessage(new RequestMessage("r1", "enabled", null, true, null, null)));
+        Assert.False(ConnectionRules.DropsOnClientMessage(new CancelMessage("r2", Guid.NewGuid())));
+    }
+
+    [Fact]
+    public void StatusMaySendRequests()
+    {
+        var hello = ConnectionRules.AcceptedHello(new HelloMessage("status"));
+
+        Assert.NotNull(hello);
+        Assert.False(ConnectionRules.DropsOnClientMessage(new RequestMessage(new string('a', 64), "weeknightMinutes", 120, null, null, null)));
+        Assert.False(ConnectionRules.DropsOnClientMessage(new CancelMessage(new string('a', 64), Guid.NewGuid())));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new RequestMessage(new string('a', 65), "weeknightMinutes", 120, null, null, null)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new CancelMessage(new string('a', 65), Guid.NewGuid())));
+        Assert.Equal(64, ConnectionRules.MaxRequestIdLength);
+    }
+
+    [Fact]
+    public void IdleStatusDropped()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(10), ConnectionRules.IdleLimit);
+        Assert.Equal(ConnectionRules.IdleLimit, ConnectionRules.IdleLimitFor(verifiedHelper: false));
+        Assert.Null(ConnectionRules.IdleLimitFor(verifiedHelper: true));
     }
 
     [Fact]

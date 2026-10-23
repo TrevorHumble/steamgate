@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using SteamGate.Core;
+using SteamGate.Core.Rules;
 using Xunit;
 
 namespace SteamGate.Tests;
@@ -351,6 +352,134 @@ public sealed class SettingsStoreTests
 
         Assert.False(saved);
         Assert.False(Directory.Exists(missing));
+    }
+
+    [Fact]
+    public void PendingRoundTrips()
+    {
+        using var temp = new TempFolder();
+        var store = new SettingsStore(temp.Folder);
+        store.Load();
+        var requested = new DateTime(2026, 10, 20, 21, 0, 0, 123, DateTimeKind.Utc);
+        var saved = GateSettings.Defaults with
+        {
+            Pending =
+            [
+                new PendingChange(Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e"), ChangeFields.WeekendNightsAdd, null, null, null, [DayOfWeek.Sunday], requested, 172799.5),
+                new PendingChange(Guid.Parse("1f8fad5b-d9cb-469f-a165-70867728950e"), ChangeFields.AllowUninstall, null, true, null, null, requested.AddMinutes(1), 12.25),
+                new PendingChange(Guid.Parse("2f8fad5b-d9cb-469f-a165-70867728950e"), ChangeFields.NotCountedAdd, null, null, "Viewfinder", null, requested, 1),
+                new PendingChange(Guid.Parse("3f8fad5b-d9cb-469f-a165-70867728950e"), ChangeFields.WeeknightMinutes, 120, null, null, null, requested, 0),
+            ],
+            AllowUninstall = true,
+            Clock = new LockClock(new DateTime(2026, 10, 20, 22, 30, 0, DateTimeKind.Utc), 123456789012, Guid.Parse("9f8fad5b-d9cb-469f-a165-70867728950e")),
+        };
+
+        Assert.True(store.Save(saved));
+        var loaded = new SettingsStore(temp.Folder).Load();
+
+        Assert.False(loaded.Corrupt);
+        Assert.True(loaded.Value.AllowUninstall);
+        Assert.Equal(saved.Pending.Count, loaded.Value.Pending.Count);
+        for (var index = 0; index < saved.Pending.Count; index++)
+        {
+            var before = saved.Pending[index];
+            var after = loaded.Value.Pending[index];
+            Assert.Equal(before.Id, after.Id);
+            Assert.Equal(before.Field, after.Field);
+            Assert.Equal(before.Number, after.Number);
+            Assert.Equal(before.Flag, after.Flag);
+            Assert.Equal(before.Folder, after.Folder);
+            Assert.Equal(before.RequestedUtc, after.RequestedUtc);
+            Assert.Equal(before.RemainingWaitSeconds, after.RemainingWaitSeconds);
+            Assert.Equal(before.Days is null, after.Days is null);
+            if (before.Days is not null)
+            {
+                Assert.Equal(before.Days, after.Days);
+            }
+        }
+
+        Assert.Equal(saved.Clock!.LastSavedUtc, loaded.Value.Clock!.LastSavedUtc);
+        Assert.Equal(saved.Clock.LastSavedUptimeMs, loaded.Value.Clock.LastSavedUptimeMs);
+        Assert.Equal(saved.Clock.BootId, loaded.Value.Clock.BootId);
+    }
+
+    [Fact]
+    public void Load_NoLockFields_TakeDefaults()
+    {
+        using var temp = new TempFolder();
+        File.WriteAllText(temp.PathOf("settings.json"), "{\"weeknightMinutes\":75}");
+
+        var result = new SettingsStore(temp.Folder).Load();
+
+        Assert.False(result.Corrupt);
+        Assert.Empty(result.Value.Pending);
+        Assert.False(result.Value.AllowUninstall);
+        Assert.Null(result.Value.Clock);
+    }
+
+    [Theory]
+    [InlineData("{\"pending\":[null]}")]
+    [InlineData("{\"pending\":null}")]
+    [InlineData("{\"pending\":[{\"id\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"field\":\"bogus\",\"number\":5,\"requestedUtc\":\"2026-10-20T21:00:00Z\",\"remainingWaitSeconds\":10}]}")]
+    [InlineData("{\"pending\":[{\"id\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"field\":\"weeknightMinutes\",\"flag\":true,\"requestedUtc\":\"2026-10-20T21:00:00Z\",\"remainingWaitSeconds\":10}]}")]
+    [InlineData("{\"pending\":[{\"id\":\"0f8fad5b-d9cb-469f-a165-70867728950e\",\"field\":\"weeknightMinutes\",\"number\":1441,\"requestedUtc\":\"2026-10-20T21:00:00Z\",\"remainingWaitSeconds\":10}]}")]
+    [InlineData("{\"cooldownHours\":169}")]
+    [InlineData("{\"weeknightMinutes\":1441}")]
+    [InlineData("{\"weekendNightMinutes\":1441}")]
+    [InlineData("{\"weeklyCapMinutes\":10081}")]
+    public void Load_OutOfRangeOrBadPending_FallsBackToDefaults(string content)
+    {
+        AssertFallsBackToDefaults(content);
+    }
+
+    [Fact]
+    public void Load_ValuesAtTheTop_AreKept()
+    {
+        using var temp = new TempFolder();
+        File.WriteAllText(temp.PathOf("settings.json"), "{\"cooldownHours\":168,\"weeknightMinutes\":1440,\"weekendNightMinutes\":1440,\"weeklyCapMinutes\":10080}");
+
+        var result = new SettingsStore(temp.Folder).Load();
+
+        Assert.False(result.Corrupt);
+        Assert.Equal(168, result.Value.CooldownHours);
+        Assert.Equal(1440, result.Value.WeeknightMinutes);
+        Assert.Equal(1440, result.Value.WeekendNightMinutes);
+        Assert.Equal(10080, result.Value.WeeklyCapMinutes);
+    }
+
+    [Fact]
+    public void Load_FiftyFolders_AreKeptAndFiftyOneAreCorrupt()
+    {
+        using var temp = new TempFolder();
+        var store = new SettingsStore(temp.Folder);
+        store.Load();
+        var fifty = GateSettings.Defaults with { NotCounted = Enumerable.Range(0, 50).Select(n => "F" + n).ToArray() };
+        var fiftyOne = GateSettings.Defaults with { NotCounted = Enumerable.Range(0, 51).Select(n => "F" + n).ToArray() };
+
+        Assert.True(store.Save(fifty));
+        Assert.False(store.Save(fiftyOne));
+
+        Assert.Equal(50, new SettingsStore(temp.Folder).Load().Value.NotCounted.Count);
+    }
+
+    [Fact]
+    public void Save_BadValues_ReturnsFalseAndKeepsFile()
+    {
+        using var temp = new TempFolder();
+        var store = new SettingsStore(temp.Folder);
+        store.Load();
+        var before = File.ReadAllText(temp.PathOf("settings.json"));
+        var bad = new PendingChange(Guid.NewGuid(), "bogus", 1, null, null, null, DateTime.UtcNow, 5);
+
+        Assert.False(store.Save(GateSettings.Defaults with { CooldownHours = 169 }));
+        Assert.False(store.Save(GateSettings.Defaults with { WeeknightMinutes = 1441 }));
+        Assert.False(store.Save(GateSettings.Defaults with { WeekendNightMinutes = 1441 }));
+        Assert.False(store.Save(GateSettings.Defaults with { WeeklyCapMinutes = 10081 }));
+        Assert.False(store.Save(GateSettings.Defaults with { Pending = [bad] }));
+        Assert.False(store.Save(GateSettings.Defaults with { Pending = [null!] }));
+        Assert.False(store.Save(GateSettings.Defaults with { Pending = null! }));
+
+        Assert.Equal(before, File.ReadAllText(temp.PathOf("settings.json")));
     }
 
     // Releases the lock from a timer one retry delay after it starts; the store retries for GiveUpAfter, so the release lands well inside the window and the tests assert only the outcome.

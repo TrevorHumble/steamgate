@@ -27,6 +27,9 @@ public abstract record PipeMessage
                 HelloMessage.TypeName => ParseHello(root),
                 WarnMessage.TypeName => ParseWarn(root),
                 CloseMessage.TypeName => ParseClose(root),
+                RequestMessage.TypeName => ParseRequest(root),
+                CancelMessage.TypeName => ParseCancel(root),
+                ReplyMessage.TypeName => ParseReply(root),
                 _ => null,
             };
         }
@@ -76,6 +79,103 @@ public abstract record PipeMessage
 
         return new CloseMessage(game, displayName, processIds);
     }
+
+    private static RequestMessage? ParseRequest(JsonElement root)
+    {
+        if (!TryString(root, "requestId", out var requestId) || !TryString(root, "field", out var field))
+        {
+            return null;
+        }
+
+        // A member that is present must be the right kind of value; a JSON null counts as absent.
+        int? number = null;
+        if (IsPresent(root, "number", out var numberElement))
+        {
+            if (numberElement.ValueKind != JsonValueKind.Number || !numberElement.TryGetInt32(out var parsedNumber))
+            {
+                return null;
+            }
+
+            number = parsedNumber;
+        }
+
+        bool? flag = null;
+        if (IsPresent(root, "flag", out var flagElement))
+        {
+            if (flagElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return null;
+            }
+
+            flag = flagElement.GetBoolean();
+        }
+
+        string? folder = null;
+        if (IsPresent(root, "folder", out var folderElement))
+        {
+            if (folderElement.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            folder = folderElement.GetString();
+        }
+
+        List<string>? days = null;
+        if (IsPresent(root, "days", out var daysElement))
+        {
+            if (daysElement.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            days = [];
+            foreach (var day in daysElement.EnumerateArray())
+            {
+                if (day.ValueKind != JsonValueKind.String)
+                {
+                    return null;
+                }
+
+                days.Add(day.GetString() ?? string.Empty);
+            }
+        }
+
+        return new RequestMessage(requestId, field, number, flag, folder, days);
+    }
+
+    private static CancelMessage? ParseCancel(JsonElement root) =>
+        TryString(root, "requestId", out var requestId) && TryString(root, "id", out var id) && Guid.TryParse(id, out var guid)
+            ? new CancelMessage(requestId, guid)
+            : null;
+
+    private static ReplyMessage? ParseReply(JsonElement root)
+    {
+        if (!TryString(root, "requestId", out var requestId)
+            || !TryString(root, "message", out var message)
+            || !root.TryGetProperty("ok", out var ok)
+            || ok.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return null;
+        }
+
+        Guid? pending = null;
+        if (IsPresent(root, "pending", out _))
+        {
+            if (!TryString(root, "pending", out var text) || !Guid.TryParse(text, out var guid))
+            {
+                return null;
+            }
+
+            pending = guid;
+        }
+
+        return new ReplyMessage(requestId, ok.GetBoolean(), message, pending);
+    }
+
+    // True when the property exists and is not a JSON null.
+    private static bool IsPresent(JsonElement element, string name, out JsonElement value) =>
+        element.TryGetProperty(name, out value) && value.ValueKind != JsonValueKind.Null;
 
     private static bool TryString(JsonElement element, string name, out string value)
     {
@@ -151,5 +251,81 @@ public sealed record CloseMessage(string Game, string DisplayName, IReadOnlyList
         }
 
         writer.WriteEndArray();
+    });
+}
+
+/// <summary>Client to server: change one rule. Exactly one of number, flag, folder, or days is set, the one that matches the field.</summary>
+public sealed record RequestMessage(string RequestId, string Field, int? Number, bool? Flag, string? Folder, IReadOnlyList<string>? Days) : PipeMessage
+{
+    public const string TypeName = "request";
+
+    public bool Equals(RequestMessage? other) =>
+        other is not null
+        && RequestId == other.RequestId && Field == other.Field && Number == other.Number && Flag == other.Flag && Folder == other.Folder
+        && (Days is null ? other.Days is null : other.Days is not null && Days.SequenceEqual(other.Days));
+
+    public override int GetHashCode() => HashCode.Combine(RequestId, Field, Number, Flag, Folder, Days?.Count);
+
+    public override string Serialize() => Write(writer =>
+    {
+        writer.WriteString("type", TypeName);
+        writer.WriteString("requestId", RequestId);
+        writer.WriteString("field", Field);
+        if (Number is { } number)
+        {
+            writer.WriteNumber("number", number);
+        }
+
+        if (Flag is { } flag)
+        {
+            writer.WriteBoolean("flag", flag);
+        }
+
+        if (Folder is not null)
+        {
+            writer.WriteString("folder", Folder);
+        }
+
+        if (Days is not null)
+        {
+            writer.WriteStartArray("days");
+            foreach (var day in Days)
+            {
+                writer.WriteStringValue(day);
+            }
+
+            writer.WriteEndArray();
+        }
+    });
+}
+
+/// <summary>Client to server: drop the pending change with this id.</summary>
+public sealed record CancelMessage(string RequestId, Guid Id) : PipeMessage
+{
+    public const string TypeName = "cancel";
+
+    public override string Serialize() => Write(writer =>
+    {
+        writer.WriteString("type", TypeName);
+        writer.WriteString("requestId", RequestId);
+        writer.WriteString("id", Id);
+    });
+}
+
+/// <summary>Server to client: the answer to the request or cancel with this requestId. Pending is the id of the entry the request created, when it did.</summary>
+public sealed record ReplyMessage(string RequestId, bool Ok, string Message, Guid? Pending) : PipeMessage
+{
+    public const string TypeName = "reply";
+
+    public override string Serialize() => Write(writer =>
+    {
+        writer.WriteString("type", TypeName);
+        writer.WriteString("requestId", RequestId);
+        writer.WriteBoolean("ok", Ok);
+        writer.WriteString("message", Message);
+        if (Pending is { } pending)
+        {
+            writer.WriteString("pending", pending);
+        }
     });
 }

@@ -4,6 +4,8 @@
 $ServiceName = 'SteamGate'
 $ProgramDir = Join-Path $env:ProgramFiles 'SteamGate'
 $DataDir = Join-Path $env:ProgramData 'SteamGate'
+# The service keeps its boot marker under this key (the volatile child Boot); the uninstall script and the test reset remove the whole key.
+$RegistryKey = 'HKLM:\SOFTWARE\SteamGate'
 $AdminsSid = 'S-1-5-32-544'
 $SystemSid = 'S-1-5-18'
 
