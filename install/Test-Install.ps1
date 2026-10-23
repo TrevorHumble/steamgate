@@ -750,7 +750,9 @@ function Assert-UninstallRefused {
     $global:LASTEXITCODE = 0
     $printed = (& $uninstallScript *>&1 | Out-String)
     if ($LASTEXITCODE -ne 1) { Fail "the uninstall $What exited with code $LASTEXITCODE, expected 1" }
-    if (-not $printed.Contains($refusalText)) { Fail "the uninstall $What printed ""$printed"", expected the refusal" }
+    # Console output wraps long lines, so compare with all runs of whitespace folded to one space.
+    $flat = ($printed -replace '\s+', ' ')
+    if (-not $flat.Contains($refusalText)) { Fail "the uninstall $What printed ""$printed"", expected the refusal" }
     if ((Get-ServicePid) -eq 0) { Fail "the service is not running after the refused uninstall $What" }
 }
 
