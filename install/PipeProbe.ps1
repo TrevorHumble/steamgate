@@ -1,18 +1,20 @@
-# CI only: connects to \\.\pipe\SteamGate the way the helper and the later status screen do, as whoever runs this script.
+# CI only: connects to \\.\pipe\SteamGate the way the helper and the status screen do, as whoever runs this script.
 # It opens the pipe with exactly the rights the pipe grants a standard user (never generic read or write), sends
 # {"type":"hello","role":"status"}, reads the pipe's owner, and writes "CONNECTED <owner SID>" to -OutFile. It records the owner
 # but does not refuse a pipe over it; the install test checks the owner.
-# If it cannot connect it writes "FAILED <reason>" to -OutFile and exits 1. If sending -Line fails, or no reply comes, it writes
-# "FAILED <reason>" to -ReplyFile (when given), leaves "CONNECTED <owner SID>" in -OutFile, and exits 1.
+# If it cannot connect it writes "FAILED <reason>" to -OutFile and exits 1. If sending -Line fails, or no reply or state comes, it writes
+# "FAILED <reason>" to -ReplyFile or -StateFile (when given), leaves "CONNECTED <owner SID>" in -OutFile, and exits 1.
 # -Line is one extra line to send right after the hello (the newline is added). -ReplyFile is where to write the first reply
-# line the server sends back, or "FAILED no reply" when none comes within 10 seconds; without -ReplyFile it does not wait for one.
-# Without -Line and -ReplyFile it behaves as it always has. Never run this on a machine you use.
+# line the server sends back, or "FAILED no reply" when none comes within 10 seconds; it skips state lines. -StateFile is where to write
+# the first state line the server sends, or "FAILED no state"; a state line can be up to 524288 bytes. Without -ReplyFile and -StateFile it
+# does not wait for a line. Without -Line, -ReplyFile, and -StateFile it behaves as it always has. Never run this on a machine you use.
 param(
     [Parameter(Mandatory)][string]$OutFile,
     [int]$WaitSeconds = 20,
     [int]$HoldSeconds = 3,
     [string]$Line = '',
-    [string]$ReplyFile = ''
+    [string]$ReplyFile = '',
+    [string]$StateFile = ''
 )
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
@@ -91,8 +93,9 @@ public static class SteamGateProbe
         return WriteFile(handle, bytes, bytes.Length, out written, IntPtr.Zero);
     }
 
-    // Reads one line from the server, polling so a silent server cannot block it. Null when none arrives in time or the pipe closes.
-    public static string ReadLine(SafeFileHandle handle, int timeoutMs)
+    // Reads one line from the server, polling so a silent server cannot block it. Null when none arrives in time, the pipe closes,
+    // or the line is longer than maxBytes (not counting the newline).
+    public static string ReadLine(SafeFileHandle handle, int timeoutMs, int maxBytes)
     {
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         System.Collections.Generic.List<byte> line = new System.Collections.Generic.List<byte>();
@@ -118,6 +121,10 @@ public static class SteamGateProbe
             {
                 return Encoding.UTF8.GetString(line.ToArray()).TrimEnd('\r');
             }
+            if (line.Count >= maxBytes)
+            {
+                return null;
+            }
             line.Add(one[0]);
         }
         return null;
@@ -136,18 +143,37 @@ while ($true) {
         if ($Line -ne '') {
             if (-not [SteamGateProbe]::SendLine($handle, $Line)) {
                 if ($ReplyFile -ne '') { [IO.File]::WriteAllText($ReplyFile, 'FAILED could not send the line') }
+                if ($StateFile -ne '') { [IO.File]::WriteAllText($StateFile, 'FAILED could not send the line') }
                 $handle.Dispose()
                 exit 1
             }
         }
-        if ($ReplyFile -ne '') {
-            $reply = [SteamGateProbe]::ReadLine($handle, 10000)
-            if ($null -eq $reply) {
-                [IO.File]::WriteAllText($ReplyFile, 'FAILED no reply')
+        if (($ReplyFile -ne '') -or ($StateFile -ne '')) {
+            # The server sends a state line right after the hello when it already holds one, otherwise on the next tick (within 5 seconds),
+            # and again when something changes, so lines are read until the wanted ones have arrived or 10 seconds are up.
+            # Every line is read with the state line limit.
+            $needReply = ($ReplyFile -ne '')
+            $needState = ($StateFile -ne '')
+            $readUntil = (Get-Date).AddSeconds(10)
+            while ($needReply -or $needState) {
+                $left = [int][Math]::Max(0, ($readUntil - (Get-Date)).TotalMilliseconds)
+                if ($left -eq 0) { break }
+                $received = [SteamGateProbe]::ReadLine($handle, $left, 524288)
+                if ($null -eq $received) { break }
+                if ($needState -and $received.Contains('"type":"state"')) {
+                    [IO.File]::WriteAllText($StateFile, $received)
+                    $needState = $false
+                } elseif ($needReply -and $received.Contains('"type":"reply"')) {
+                    [IO.File]::WriteAllText($ReplyFile, $received)
+                    $needReply = $false
+                }
+            }
+            if ($needReply) { [IO.File]::WriteAllText($ReplyFile, 'FAILED no reply') }
+            if ($needState) { [IO.File]::WriteAllText($StateFile, 'FAILED no state') }
+            if ($needReply -or $needState) {
                 $handle.Dispose()
                 exit 1
             }
-            [IO.File]::WriteAllText($ReplyFile, $reply)
         }
         Start-Sleep -Seconds $HoldSeconds
         $handle.Dispose()

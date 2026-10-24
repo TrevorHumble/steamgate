@@ -1,5 +1,6 @@
-# Installs SteamGate as a Windows service, or upgrades an installed copy.
-# Run from an administrator Windows PowerShell, in the folder that holds this script, SteamGate.Common.ps1, and SteamGate.Service.exe.
+# Installs SteamGate as a Windows service, or upgrades an installed copy, and makes the Start Menu shortcut that opens SteamGate.Status.exe, the status screen.
+# Run from an administrator Windows PowerShell, in the folder that holds this script, SteamGate.Common.ps1, and the published SteamGate.Service.exe,
+# SteamGate.Helper.exe, and SteamGate.Status.exe (SteamGate.Service.exe must be next to this script and SteamGate.Status.exe must be in the program folder after the copy; every file next to this script that is not a .ps1 file is copied).
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
@@ -22,6 +23,25 @@ function Copy-ProgramFiles {
         Copy-Item -LiteralPath $file.FullName -Destination $ProgramDir -Force
     }
     Write-Host "INSTALL: program files copied to $ProgramDir"
+}
+
+# Makes the Start Menu shortcut that opens the status screen. Any file already at the path is deleted first, so an upgrade also repairs a shortcut that was changed.
+function New-StartMenuShortcut {
+    $statusExe = Join-Path $ProgramDir 'SteamGate.Status.exe'
+    if (-not (Test-Path -LiteralPath $statusExe)) {
+        throw "SteamGate.Status.exe is not in $ProgramDir, so the Start Menu shortcut cannot be made; publish it next to this script and run the install again"
+    }
+    if (Test-Path -LiteralPath $ShortcutPath) { Remove-Item -LiteralPath $ShortcutPath -Force }
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        $link = $shell.CreateShortcut($ShortcutPath)
+        $link.TargetPath = $statusExe
+        $link.WorkingDirectory = $ProgramDir
+        $link.Save()
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+    Write-Host 'INSTALL: Start Menu shortcut created'
 }
 
 function Start-GateService {
@@ -55,6 +75,7 @@ function Install-Upgrade {
         Clear-Recovery
         Stop-SteamGateProcesses -Prefix 'INSTALL'
         Copy-ProgramFiles
+        New-StartMenuShortcut
     } catch {
         $failure = $_.Exception.Message
     }
@@ -68,6 +89,7 @@ function Install-Upgrade {
 
 function Install-Fresh {
     Copy-ProgramFiles
+    New-StartMenuShortcut
     New-DataFolder
     $binaryPath = '"' + (Join-Path $ProgramDir $ExeName) + '"'
     New-Service -Name $ServiceName -DisplayName 'SteamGate' -StartupType Automatic -BinaryPathName $binaryPath `

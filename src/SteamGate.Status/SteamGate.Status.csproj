@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- CA2000: a window builds hundreds of controls and hands each to its parent, which disposes them. WFO1000: no visual designer touches these controls. -->
+    <NoWarn>$(NoWarn);CA2000;WFO1000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SteamGate.Core\SteamGate.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- One copy of the code that opens the pipe with a standard user's rights and checks who owns it: the helper's. -->
+    <Compile Include="..\SteamGate.Helper\PipeClient.cs" Link="PipeClient.cs" />
+  </ItemGroup>
+
+</Project>

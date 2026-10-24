@@ -9,11 +9,12 @@ using Microsoft.Win32.SafeHandles;
 using SteamGate.Core;
 using SteamGate.Core.Pipe;
 using SteamGate.Core.Rules;
+using SteamGate.Core.Status;
 
 namespace SteamGate.Service;
 
 /// <summary>
-/// The pipe \\.\pipe\SteamGate: how the helper (and later the status screen) talks to the service. It is a convenience
+/// The pipe \\.\pipe\SteamGate: how the helper and the status screen talk to the service. It is a convenience
 /// and must never stop enforcement. Every failure here is logged and isolated; the worker retries through EnsureListening
 /// on each tick. The decisions (who may join, who is dropped, who gets warnings) are in ConnectionRules; this class applies them.
 /// </summary>
@@ -33,6 +34,9 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private readonly ChannelWriter<SettingsCommand> _commands;
     private readonly RateLimitedLog _helloLog;
     private readonly RateLimitedLog _requestLog;
+
+    // Which state the status screens get and what a new one is sent first. Touched only under _lock.
+    private readonly StatusFeed _feed = new();
     private int _activeConnections;
     private Task? _loop;
     private int _openInstances;
@@ -56,6 +60,18 @@ internal sealed class PipeServer : IHostedService, IDisposable
             lock (_lock)
             {
                 return _clients.Any(client => client.Verified);
+            }
+        }
+    }
+
+    /// <summary>True when at least one connection said hello as the status screen.</summary>
+    public bool StatusConnected
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return AnyStatusClient();
             }
         }
     }
@@ -136,6 +152,43 @@ internal sealed class PipeServer : IHostedService, IDisposable
         }
 
         return accepted;
+    }
+
+    /// <summary>
+    /// Offers a state to the status screens: it is posted to every status connection's queue when it differs from the last one posted,
+    /// and never to a helper. With no status connection it is dropped. A screen whose queue is full is dropped. Never writes to a pipe.
+    /// </summary>
+    public void PublishState(StateMessage state)
+    {
+        var full = new List<Connection>();
+        try
+        {
+            lock (_lock)
+            {
+                if (!AnyStatusClient() || !_feed.Offer(state))
+                {
+                    return;
+                }
+
+                foreach (var client in _clients.Where(client => client.IsStatus))
+                {
+                    if (!client.Queue.TryPost(state))
+                    {
+                        full.Add(client);
+                    }
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The server is shutting down.
+            return;
+        }
+
+        foreach (var client in full)
+        {
+            client.Drop();
+        }
     }
 
     /// <summary>Checks again that each verified helper is the installed program in the console session; one that is not is dropped.</summary>
@@ -324,6 +377,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
 
             connection.Pid = ClientProcessId(pipe);
             connection.SessionId = ClientSessionId(pipe);
+            connection.IsStatus = hello.Role == HelloMessage.StatusRole;
             LogHello(hello.Role, connection.Pid);
             var verified = hello.Role == HelloMessage.HelperRole && IsVerifiedHelper(connection.Pid);
 
@@ -350,6 +404,12 @@ internal sealed class PipeServer : IHostedService, IDisposable
             lock (_lock)
             {
                 _clients.Remove(connection);
+
+                // With the last status screen gone, the stored state goes too, so the next screen never gets an old one.
+                if (!AnyStatusClient())
+                {
+                    _feed.Forget();
+                }
             }
 
             connection.Queue.Complete();
@@ -462,6 +522,9 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private void LogHello(string role, uint pid) =>
         _helloLog.Write(FormattableString.Invariant($"pipe hello role={role} pid={pid}"));
 
+    // True when a registered connection is a status screen. The caller holds _lock.
+    private bool AnyStatusClient() => _clients.Any(client => client.IsStatus);
+
     private bool Register(Connection connection, bool verified)
     {
         Connection? evicted = null;
@@ -484,6 +547,12 @@ internal sealed class PipeServer : IHostedService, IDisposable
 
             connection.Verified = verified;
             _clients.Add(connection);
+
+            // A new status screen gets the latest state at once, ahead of anything posted later (PublishState posts under this lock too).
+            if (connection.IsStatus && _feed.Latest is { } latest)
+            {
+                connection.Queue.TryPost(latest);
+            }
         }
 
         evicted?.Drop();
@@ -535,6 +604,9 @@ internal sealed class PipeServer : IHostedService, IDisposable
         public OutboundQueue Queue { get; }
 
         public volatile bool Verified;
+
+        /// <summary>True when the hello said "status". Set before the connection is registered, never changed after.</summary>
+        public volatile bool IsStatus;
 
         public uint Pid { get; set; }
 

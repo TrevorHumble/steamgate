@@ -46,3 +46,9 @@ Trevor, same day, on the preview of the warning: "No sound, I just need an overl
 
 Known gap, which Trevor has been told: an overlay cannot draw over a game in exclusive full-screen mode, only over a borderless or windowed one. The force close works either way.
 Nothing else in the spec changes.
+
+## Amendment 2026-10-23 (status screen look)
+
+Trevor, in chat with the build session on 2026-10-23, after the build session listed what was left (the status screen look on `docs/preview-2026-10-21.html`, and the cards on `docs/preview-2026-10-22-extras.html`: the extra texts and states, the "SteamGate is off" lines and buttons, how the screen is opened, and the program icon) and asked him to look at them and say what he approves or wants changed: "looks good my man".
+He changed no card. The status screen look on `docs/preview-2026-10-21.html` and every card of `docs/preview-2026-10-22-extras.html` are approved as proposed: the Start Menu shortcut only, the default Windows program icon, and the "SteamGate is off" and "Removal is allowed" lines with their buttons (cards 12, 13, and 14).
+Nothing else in the spec changes.

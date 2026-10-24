@@ -742,7 +742,7 @@ try {
 
 # 17. Uninstall is refused until allowUninstall has waited out the cooldown.
 $uninstallScript = Join-Path $PublishDir 'Uninstall-SteamGate.ps1'
-$refusalText = 'Removal is not allowed yet. Request it in SteamGate; it applies after the cooldown (until its status screen ships, an admin sets allowUninstall to true in settings.json and runs the uninstall right away).'
+$refusalText = 'Removal is not allowed yet. Request it in SteamGate; it applies after the cooldown.'
 
 # Runs the real uninstall script directly and fails unless it exits 1 with the refusal printed and the service still running.
 function Assert-UninstallRefused {
@@ -754,6 +754,7 @@ function Assert-UninstallRefused {
     $flat = ($printed -replace '\s+', ' ')
     if (-not $flat.Contains($refusalText)) { Fail "the uninstall $What printed ""$printed"", expected the refusal" }
     if ((Get-ServicePid) -eq 0) { Fail "the service is not running after the refused uninstall $What" }
+    if (-not (Test-Path -LiteralPath $ShortcutPath)) { Fail "the Start Menu shortcut is gone after the refused uninstall $What" }
 }
 
 # Replaces settings.json the way a careful admin would: write a temp file, then move it over.
@@ -796,6 +797,113 @@ try {
     if (Test-Path -LiteralPath $RegistryKey) { Fail "$RegistryKey still exists after the allowed uninstall" }
     if (Test-Path -LiteralPath $DataDir) { Fail "$DataDir still exists after the allowed uninstall" }
     Write-Host 'UNINSTALL UNLOCKED'
+} finally {
+    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Invoke-TestUninstall }
+}
+
+# 18. The status screen's state: a client that speaks the screen's pipe protocol (PipeProbe.ps1, hello as "status") gets a state line from the service.
+try {
+    Reset-SteamGate @{}
+    $stateOut = Join-Path $FakeRootBase 'state-probe.txt'
+    $stateLineFile = Join-Path $FakeRootBase 'state-line.txt'
+    Remove-Item -LiteralPath $stateOut, $stateLineFile -Force -ErrorAction SilentlyContinue
+    # The night is the local date minus 4 hours; the limit depends on whether it is a weekend night. Both ends of the wait are checked, so a boundary in between cannot fail the test.
+    $weekendNights = @('Friday', 'Saturday', 'Sunday')
+    $limitBefore = if ($weekendNights -contains [string](Get-Date).AddHours(-4).DayOfWeek) { 180 } else { 90 }
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ProbeScript`"", '-OutFile', "`"$stateOut`"", '-WaitSeconds', '10', '-HoldSeconds', '0', '-StateFile', "`"$stateLineFile`"")
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -WorkingDirectory $env:SystemRoot | Out-Null
+    $stateText = Wait-ProbeResult -OutFile $stateLineFile -Seconds 15 -What 'the state probe'
+    if ($stateText -like 'FAILED*') { Fail "the state probe wrote ""$stateText""" }
+    $limitAfter = if ($weekendNights -contains [string](Get-Date).AddHours(-4).DayOfWeek) { 180 } else { 90 }
+    $state = $stateText | ConvertFrom-Json
+    if ($state.type -ne 'state') { Fail "the first line the probe kept had type ""$($state.type)"", expected state" }
+    if ($state.settings.weeknightMinutes -ne 90) { Fail "the state has weeknightMinutes $($state.settings.weeknightMinutes), expected 90" }
+    if ($state.settings.cooldownHours -ne 48) { Fail "the state has cooldownHours $($state.settings.cooldownHours), expected 48" }
+    if (@($state.settings.notCounted).Count -ne 4) { Fail "the state has $(@($state.settings.notCounted).Count) not-counted entries, expected 4" }
+    if (@($state.settings.notCounted | Where-Object { $_.displayName -eq 'Wallpaper Engine' }).Count -ne 1) { Fail 'the state has no not-counted entry named Wallpaper Engine' }
+    if (($state.tonightLimitMinutes -ne $limitBefore) -and ($state.tonightLimitMinutes -ne $limitAfter)) { Fail "the state has tonightLimitMinutes $($state.tonightLimitMinutes), expected $limitBefore" }
+    Write-Host 'STATE OK'
+} finally {
+    Invoke-TestUninstall
+}
+
+# 19. The real status screen program: it says hello, runs one copy per user per session, and closes cleanly.
+$statusExe = Join-Path $ProgramDir 'SteamGate.Status.exe'
+$statusFirst = $null
+$statusSecond = $null
+try {
+    Reset-SteamGate @{}
+    $mark = (Get-LogLines).Count
+    # Reading Handle at once keeps the exit code readable after the process ends in Windows PowerShell 5.1.
+    $statusFirst = Start-Process -FilePath $statusExe -PassThru
+    $null = $statusFirst.Handle
+    if (-not (Wait-LogLine -Pattern "pipe hello role=status pid=$($statusFirst.Id)\s*$" -After $mark -Seconds 15)) { Fail "service.log has no ""pipe hello role=status pid=$($statusFirst.Id)"" within 15 seconds" }
+
+    $statusSecond = Start-Process -FilePath $statusExe -PassThru
+    $null = $statusSecond.Handle
+    if (-not $statusSecond.WaitForExit(5000)) { Fail 'the second copy of the status screen was still running 5 seconds after it started' }
+    if ($statusSecond.ExitCode -ne 0) { Fail "the second copy of the status screen exited with code $($statusSecond.ExitCode), expected 0" }
+    if ($statusFirst.HasExited) { Fail 'the first copy of the status screen ended when the second one started' }
+    Write-Host 'STATUS SINGLE OK'
+
+    $windowDeadline = (Get-Date).AddSeconds(15)
+    while ($true) {
+        $statusFirst.Refresh()
+        if ($statusFirst.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        if ((Get-Date) -gt $windowDeadline) { Fail 'the status screen had no main window within 15 seconds' }
+        Start-Sleep -Milliseconds 500
+    }
+    $null = $statusFirst.CloseMainWindow()
+    if (-not $statusFirst.WaitForExit(10000)) { Fail 'the status screen was still running 10 seconds after its window was closed' }
+    if ($statusFirst.ExitCode -ne 0) { Fail "the status screen exited with code $($statusFirst.ExitCode) after its window was closed, expected 0" }
+    Write-Host 'STATUS OK'
+} finally {
+    foreach ($statusProcess in @($statusFirst, $statusSecond)) {
+        if (($null -ne $statusProcess) -and (-not $statusProcess.HasExited)) { Stop-Process -Id $statusProcess.Id -Force -ErrorAction SilentlyContinue }
+    }
+    Invoke-TestUninstall
+}
+
+# 20. The Start Menu shortcut: install makes it, an upgrade puts it right again, and uninstall removes it.
+function Get-ShortcutTarget {
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        return $shell.CreateShortcut($ShortcutPath).TargetPath
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+}
+
+function Set-ShortcutTarget {
+    param([string]$Target)
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        $link = $shell.CreateShortcut($ShortcutPath)
+        $link.TargetPath = $Target
+        $link.Save()
+    } finally {
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+}
+
+try {
+    Reset-SteamGate @{}
+    $expectedTarget = Join-Path $env:ProgramFiles 'SteamGate\SteamGate.Status.exe'
+    if (-not (Test-Path -LiteralPath $ShortcutPath)) { Fail "$ShortcutPath does not exist after the install" }
+    $target = Get-ShortcutTarget
+    if ($target -ne $expectedTarget) { Fail "the shortcut points at ""$target"", expected ""$expectedTarget""" }
+    Write-Host 'SHORTCUT OK'
+
+    Set-ShortcutTarget -Target 'C:\Windows\notepad.exe'
+    $beforeUpgrade = Get-ServicePid
+    Invoke-Script (Join-Path $PublishDir 'Install-SteamGate.ps1')
+    Wait-ServicePid -NotPid $beforeUpgrade -Seconds 60 -What 'the service running after the upgrade' | Out-Null
+    $target = Get-ShortcutTarget
+    if ($target -ne $expectedTarget) { Fail "the shortcut points at ""$target"" after the upgrade, expected ""$expectedTarget""" }
+
+    Invoke-TestUninstall
+    if (Test-Path -LiteralPath $ShortcutPath) { Fail "$ShortcutPath still exists after the uninstall" }
+    Write-Host 'SHORTCUT REMOVED'
 } finally {
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Invoke-TestUninstall }
 }

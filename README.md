@@ -1,6 +1,6 @@
 # SteamGate
 
-SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. It runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games work: an invisible helper shows a silent overlay at 30, 20, 10, 5, and 1 minutes left, then the game is closed at the limit. See [DESIGN.md](DESIGN.md) for the spec.
+SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. The service runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games work: an invisible helper shows a silent overlay at 30, 20, 10, 5, and 1 minutes left, then the game is closed at the limit. SteamGate opens from the Start Menu to show the time left and to request changes. See [DESIGN.md](DESIGN.md) for the spec.
 
 ## Install
 
@@ -10,7 +10,7 @@ Open the repo's Actions tab, pick the latest green CI run on `main`, and downloa
 powershell -ExecutionPolicy Bypass -File .\Install-SteamGate.ps1
 ```
 
-Artifacts expire after 90 days. If none is listed, open the Actions tab, choose CI, and press Run workflow to make a fresh one. Removal must first be requested in SteamGate's status screen; it is allowed after the cooldown. Then run `Uninstall-SteamGate.ps1` the same way. Until the status screen ships, an admin can allow removal by editing `%ProgramData%\SteamGate\settings.json` to set `"allowUninstall": true` and then running `Uninstall-SteamGate.ps1` right away (SteamGate rewrites the file on its next save).
+Artifacts expire after 90 days. If none is listed, open the Actions tab, choose CI, and press Run workflow to make a fresh one. To remove SteamGate, open SteamGate from the Start Menu and press Request removal. Once the cooldown has passed, run `Uninstall-SteamGate.ps1` the same way.
 
 ---
 
@@ -97,6 +97,7 @@ powershell -File tools/stop-run.ps1                  # emergency brake (or creat
 | `setup.ps1` · `tools/` | one-time setup (root `setup.ps1`); `check-enforcement`, `setup-hooks`, `check-gate`, `review_verdict`, `start-run`, `stop-run` |
 | `src/` | `SteamGate.Core` (decision and file-store logic) and `SteamGate.Service` (the Windows service) |
 | `src/SteamGate.Helper` | The invisible helper in the user's session: the warning overlay and the polite close |
+| `src/SteamGate.Status` | The status screen: time left, rules, waiting changes, and the not-counted list |
 | `tests/SteamGate.Tests/` | xUnit tests that assert output values |
 | `install/` | Install and uninstall scripts, the CI-only install test, and `PipeProbe.ps1` (CI-only) |
 | `.config/` | Pinned dotnet tools (Stryker.NET mutation testing) |

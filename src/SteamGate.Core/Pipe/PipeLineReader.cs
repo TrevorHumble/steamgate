@@ -5,7 +5,7 @@ namespace SteamGate.Core.Pipe;
 /// <summary>Reads one newline-ended line from a stream, never more bytes than the cap allows.</summary>
 public static class PipeLineReader
 {
-    /// <summary>The longest line the pipe accepts, in bytes, not counting the newline.</summary>
+    /// <summary>The longest line a client may send, and the helper reads, in bytes, not counting the newline; a state line uses StateMessage.MaxLineBytes, which does not count the newline either.</summary>
     public const int MaxLineBytes = 16 * 1024;
 
     /// <summary>

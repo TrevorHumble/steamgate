@@ -1,4 +1,4 @@
-# Removes the SteamGate service, its program files, its settings folder, and the registry key HKLM:\SOFTWARE\SteamGate.
+# Removes the SteamGate service, its program files, its settings folder, its Start Menu shortcut, and the registry key HKLM:\SOFTWARE\SteamGate.
 # With the service installed it refuses until settings.json says allowUninstall is true, which happens after a request to allow
 # removal has waited out the cooldown (or an admin sets it by hand). There is no switch to skip that check. Without the service it cleans up whatever is left.
 # Run from an administrator Windows PowerShell, in the folder that holds this script and SteamGate.Common.ps1.
@@ -42,7 +42,7 @@ try {
     Assert-Administrator
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
         if (-not (Test-RemovalAllowed)) {
-            Write-Host 'Removal is not allowed yet. Request it in SteamGate; it applies after the cooldown (until its status screen ships, an admin sets allowUninstall to true in settings.json and runs the uninstall right away).'
+            Write-Host 'Removal is not allowed yet. Request it in SteamGate; it applies after the cooldown.'
             exit 1
         }
         # Recovery goes first, or Windows would restart the service as it is ended.
@@ -61,6 +61,8 @@ try {
         Write-Host "UNINSTALL: removed $RegistryKey"
     }
     Remove-Folder -Path $ProgramDir
+    # A refused removal exits above, before anything is removed, so it leaves the shortcut. The shortcut goes after the program folder, so it stays if removing that folder fails. A file is removed the same way.
+    Remove-Folder -Path $ShortcutPath
     Remove-Folder -Path $DataDir
     Write-Host 'UNINSTALL: done'
 } catch {

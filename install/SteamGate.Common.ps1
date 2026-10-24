@@ -6,6 +6,8 @@ $ProgramDir = Join-Path $env:ProgramFiles 'SteamGate'
 $DataDir = Join-Path $env:ProgramData 'SteamGate'
 # The service keeps its boot marker under this key (the volatile child Boot); the uninstall script and the test reset remove the whole key.
 $RegistryKey = 'HKLM:\SOFTWARE\SteamGate'
+# The Start Menu shortcut that opens the status screen, in the folder every user's Start Menu shows.
+$ShortcutPath = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'SteamGate.lnk'
 $AdminsSid = 'S-1-5-32-544'
 $SystemSid = 'S-1-5-18'
 
@@ -33,7 +35,7 @@ function Clear-Recovery {
 }
 
 # Ends the service process first and waits for it, so it cannot start a new helper in between. Only then does it end every other
-# process running from Program Files (the helper, in every session), and wait for those.
+# process running from Program Files (the helper and the status screen, in every session), and wait for those.
 function Stop-SteamGateProcesses {
     param([Parameter(Mandatory)][string]$Prefix)
     $ended = 0

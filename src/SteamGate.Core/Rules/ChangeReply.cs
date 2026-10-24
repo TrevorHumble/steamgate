@@ -12,6 +12,9 @@ public static class ChangeReply
     public const string NotAllowed = "Not allowed.";
     public const string Busy = "Busy, try again.";
 
+    /// <summary>The words that open the refused part of a weekend change that applied in part: "Applied now: Friday. Not allowed: Sunday."</summary>
+    public const string NotAllowedPart = "Not allowed: ";
+
     /// <summary>Appended to a reply whose change is held only in memory because the save failed.</summary>
     public const string SaveFailedSuffix = " Saved in memory; will retry.";
 
@@ -27,7 +30,7 @@ public static class ChangeReply
 
     /// <summary>"Applied now: Friday. Not allowed: Sunday."</summary>
     public static string AppliedNowAndNotAllowed(IEnumerable<DayOfWeek> applied, IEnumerable<DayOfWeek> refused) =>
-        "Applied now: " + DayNames.Format(applied) + ". Not allowed: " + DayNames.Format(refused) + ".";
+        "Applied now: " + DayNames.Format(applied) + ". " + NotAllowedPart + DayNames.Format(refused) + ".";
 
     /// <summary>"48 h 0 min": whole hours and the minutes left over, from the seconds rounded up to a minute.</summary>
     public static string HoursMinutes(double seconds)

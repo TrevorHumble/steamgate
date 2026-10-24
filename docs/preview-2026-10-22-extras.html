@@ -1,0 +1,291 @@
+<title>SteamGate Status Extras</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Same tokens and parts as docs/preview-2026-10-21.html. Each card shows one state the first preview did not show. */
+:root {
+  --bg: #e9edf1;
+  --win: #fbfcfd;
+  --line: #d8dee5;
+  --fg: #1b232c;
+  --muted: #5d6b79;
+  --accent: #2c6a8a;
+  --accent-soft: #e2eef4;
+  --wait: #9a5b00;
+  --wait-soft: #fbf0dd;
+  --now: #2d7a3e;
+  --now-soft: #e3f2e6;
+  --bar: #d3dbe3;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 14px; margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px; }
+.page { max-width: 760px; margin: 0 auto; display: grid; gap: 20px; }
+.page > h1 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; }
+.window { background: var(--win); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cardhead { padding: 10px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.cardhead b { font-size: 14px; }
+.rule { font-size: 12px; color: var(--muted); }
+.content { padding: 20px 24px 24px; display: grid; gap: 24px; }
+h1 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.counting { font-size: 13px; color: var(--muted); }
+.counting b { color: var(--fg); font-weight: 600; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--now); margin-right: 6px; }
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.meter { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+.meter .label { font-size: 13px; color: var(--muted); }
+.meter .big { font-family: var(--display); font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.meter .big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.track { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); }
+.meter .sub { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); min-width: 0; }
+.row:first-child { border-top: 0; }
+.row .name { min-width: 0; }
+.row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.note { font-size: 12px; color: var(--muted); }
+button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--win); color: var(--fg); }
+button[disabled] { opacity: .5; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--win); }
+.editor { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px 12px; background: var(--accent-soft); border-radius: 4px; }
+.editor .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input, select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--win); color: var(--fg); }
+input[type=number] { width: 80px; }
+.verdict { font-size: 13px; padding: 6px 10px; border-radius: 4px; }
+.verdict.wait { background: var(--wait-soft); color: var(--wait); }
+.verdict.now { background: var(--now-soft); color: var(--now); }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--wait-soft); color: var(--wait); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.days label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.danger { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.empty { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.stack { display: grid; gap: 8px; }
+.sample { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
+@media (max-width: 560px) { .meters { grid-template-columns: 1fr; } .content { padding: 16px; } }
+</style>
+
+<div class="page">
+  <h1>Status screen: states the first preview did not show</h1>
+
+  <div class="window">
+    <div class="cardhead"><b>1. Tonight meter on a weekend night</b>
+      <span class="rule">Rule: the label says "weekend night" when tonight is one of the weekend nights; otherwise it reads as on the first preview.</span></div>
+    <div class="content">
+      <div class="meters">
+        <div class="meter">
+          <div class="label">Tonight (weekend night, ends 4 AM)</div>
+          <div class="big">2 h 10 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:28%"></div></div>
+          <div class="sub">50 min of 3 h used</div>
+        </div>
+        <div class="meter">
+          <div class="label">This week (resets Monday 4 AM)</div>
+          <div class="big">6 h 50 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:32%"></div></div>
+          <div class="sub">3 h 10 min of 10 h used</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>2. The "used" line has two forms</b>
+      <span class="rule">Rule: when the limit is not a whole number of hours, both numbers are plain minutes ("47 of 90 min used"); when it is, both use hours and minutes ("6 h 10 min of 10 h used"). Used minutes round down; minutes left round up, as the warnings do.</span></div>
+    <div class="content">
+      <div class="meters">
+        <div class="meter"><div class="label">Limit 90 min</div><div class="sub">47 of 90 min used</div></div>
+        <div class="meter"><div class="label">Limit 75 min</div><div class="sub">30 of 75 min used</div></div>
+        <div class="meter"><div class="label">Limit 3 h</div><div class="sub">1 h 30 min of 3 h used</div></div>
+        <div class="meter"><div class="label">Limit 10 h</div><div class="sub">6 h 10 min of 10 h used</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>3. When the week runs out before the night</b>
+      <span class="rule">Rule: each meter shows its own time left. Tonight is the night limit minus tonight's use; this week is the weekly cap minus the week's use. Games close when either reaches zero.</span></div>
+    <div class="content">
+      <div class="meters">
+        <div class="meter">
+          <div class="label">Tonight (weeknight, ends 4 AM)</div>
+          <div class="big">1 h 30 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:0%"></div></div>
+          <div class="sub">0 of 90 min used</div>
+        </div>
+        <div class="meter">
+          <div class="label">This week (resets Monday 4 AM)</div>
+          <div class="big">17 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:97%"></div></div>
+          <div class="sub">9 h 43 min of 10 h used</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>4. SteamGate cannot be reached</b>
+      <span class="rule">Rule: after 10 seconds with no connection to SteamGate the line below shows under the title and every button on the screen is greyed out (half see-through): Change, Close, Request change, Cancel, Remove, the add box's Request, Request turn off, Request removal, Request turn on, and Stop allowing removal. The last numbers stay on screen and an open editor stays open. Before any numbers have arrived, only the title and the line show.</span></div>
+    <div class="content">
+      <div class="head"><h1>SteamGate</h1></div>
+      <div class="verdict wait">Can't reach SteamGate.</div>
+      <div class="danger">
+        <button disabled>Request turn off</button>
+        <button disabled>Request removal</button>
+        <span class="note">Both wait 48 h.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>5. SteamGate's answer to a request</b>
+      <span class="rule">Rule: after you press a button that asks SteamGate for something, its answer shows on one line until the same section asks again. "Applied now." is green; every other answer is amber. Where it shows: Rules, below the note "Loosening a rule waits..." (shown here); Waiting to apply, below the waiting rows; Not counted, below the add box; Turn off or remove, below the buttons and their note; the card 12 lines, below those lines.</span></div>
+    <div class="content">
+      <section>
+        <h2>Rules</h2>
+        <div class="rows">
+          <div class="row"><div class="name">Weeknight limit</div><div class="val">1 h 30 min</div><button>Change</button></div>
+        </div>
+        <p class="note">Loosening a rule waits the cooldown. Tightening a rule applies now.</p>
+        <div class="stack">
+          <span class="rule">Every answer SteamGate can give, shown word for word (the screen adds nothing):</span>
+          <div class="verdict now">Applied now.</div>
+          <div class="verdict wait">Waits 48 h 0 min.</div>
+          <div class="verdict wait">Applied now: Friday. Waits 48 h 0 min: Sunday.</div>
+          <div class="verdict wait">Applied now: Friday. Not allowed: Sunday.</div>
+          <div class="verdict wait">Already set.</div>
+          <div class="verdict wait">Not in the list.</div>
+          <div class="verdict wait">No pending change with that id.</div>
+          <div class="verdict wait">Out of range: 0 to 1440.</div>
+          <div class="verdict wait">Not allowed.</div>
+          <div class="verdict wait">Busy, try again.</div>
+          <span class="rule">If SteamGate could not save the change to disk, the first four end with " Saved in memory; will retry.", for example:</span>
+          <div class="verdict now">Applied now. Saved in memory; will retry.</div>
+          <div class="verdict wait">Waits 48 h 0 min. Saved in memory; will retry.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>6. A request SteamGate would refuse</b>
+      <span class="rule">Rule: in a Rules editor the two night-limit boxes stop at 1440 minutes and the weekly cap box at 10080 minutes, the allowed ranges. The cooldown box allows 0 to 9999 hours, so a value above 168 shows the first preview's line "The cooldown can be at most 168 h (7 days)." instead. So a refusal here only happens when 50 changes are already waiting. The line shows SteamGate's own answer, and Request change is greyed out when nothing would apply. (A full not-counted list, 50 programs, is not judged here: pressing Request in the add box gets SteamGate's answer on the reply line, card 5.)</span></div>
+    <div class="content">
+      <div class="editor">
+        <div class="line"><input type="number" value="120"><span class="note">min</span><button class="primary" disabled>Request change</button></div>
+        <div class="verdict wait">Not allowed.</div>
+      </div>
+      <div class="editor">
+        <div class="line"><div class="days"><label><input type="checkbox" checked>Sun</label><label><input type="checkbox">Mon</label><label><input type="checkbox">Tue</label><label><input type="checkbox">Wed</label><label><input type="checkbox">Thu</label><label><input type="checkbox">Fri</label><label><input type="checkbox" checked>Sat</label></div><button class="primary">Request change</button></div>
+        <div class="verdict wait">Applied now: Friday. Not allowed: Sunday.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>7. How waiting changes read</b>
+      <span class="rule">Rule: "&lt;rule&gt;: &lt;value now&gt; to &lt;value after&gt;", with times written the same way as the Rules list. The first preview's sample row said "90 min to 120 min"; the screen writes "1 h 30 min to 2 h". A weekend-nights change lists the whole set before and after.</span></div>
+    <div class="content">
+      <section>
+        <h2>Waiting to apply</h2>
+        <div class="rows">
+          <div class="row"><div class="name">Weeknight limit: 1 h 30 min to 2 h<div class="note">Applies Thu, Oct 22, 7:02 PM</div></div><span class="pill">in 1 d 22 h</span><button>Cancel</button></div>
+          <div class="row"><div class="name">Weekend nights: Fri, Sat, Sun to Thu, Fri, Sat, Sun<div class="note">Applies Thu, Oct 22, 7:02 PM</div></div><span class="pill">in 1 d 22 h</span><button>Cancel</button></div>
+          <div class="row"><div class="name">Cooldown: 48 h to 24 h<div class="note">Applies Thu, Oct 22, 7:02 PM</div></div><span class="pill">in 1 d 22 h</span><button>Cancel</button></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>8. A waiting change only a hand edit can make</b>
+      <span class="rule">Rule: turning back on and taking back removal (card 12) apply at once, so SteamGate never makes a waiting change for them. If an admin edits the settings file to add one, the row shows the setting's file name and value ("enabled true", "allowUninstall false") with a Cancel button.</span></div>
+    <div class="content">
+      <div class="rows">
+        <div class="row"><div class="name">enabled true<div class="note">Applies Thu, Oct 22, 7:02 PM</div></div><span class="pill">in 1 d 22 h</span><button>Cancel</button></div>
+        <div class="row"><div class="name">allowUninstall false<div class="note">Applies Thu, Oct 22, 7:02 PM</div></div><span class="pill">in 1 d 22 h</span><button>Cancel</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>9. Day order</b>
+      <span class="rule">Rule: the Rules list and waiting changes name days Monday first. The check boxes keep the first preview's order, Sunday first.</span></div>
+    <div class="content">
+      <div class="rows">
+        <div class="row"><div class="name">Weekend nights</div><div class="val">Fri, Sat, Sun</div><button>Close</button>
+          <div class="editor">
+            <div class="line"><div class="days"><label><input type="checkbox" checked>Sun</label><label><input type="checkbox">Mon</label><label><input type="checkbox">Tue</label><label><input type="checkbox">Wed</label><label><input type="checkbox">Thu</label><label><input type="checkbox" checked>Fri</label><label><input type="checkbox" checked>Sat</label></div><button class="primary" disabled>Request change</button></div>
+            <div class="verdict wait">No change yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>10. Starting SteamGate when it is already open</b>
+      <span class="rule">Rule: the second copy closes at once without showing anything. The window already open stays where it is; it is not brought to the front.</span></div>
+    <div class="content">
+      <div class="empty">Nothing new appears on screen.</div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>11. Lines that carry the cooldown, and no game running</b>
+      <span class="rule">Rule: the first preview's "48 h" is the cooldown, so these lines show the cooldown in force (here 24 h). With no game being counted, the "Counting now" line is hidden.</span></div>
+    <div class="content">
+      <div class="head"><h1>SteamGate</h1></div>
+      <div class="editor"><div class="verdict wait">Adding a program loosens the rules. It waits 24 h.</div></div>
+      <div class="danger"><button>Request turn off</button><button>Request removal</button><span class="note">Both wait 24 h.</span></div>
+      <div class="editor"><div class="verdict wait">This loosens the rule. It applies Wed, Oct 21, 9:14 PM (24 h).</div></div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>12. Proposed: showing that SteamGate is off, and a way back (your call: accept, change, or drop)</b>
+      <span class="rule">Rule: the first preview never shows that SteamGate is off or that removal is allowed, and has no way back from either. Proposed: when SteamGate is off, "SteamGate is off." shows under the title with a Request turn on button; when removal is allowed, "Removal is allowed." shows with a Stop allowing removal button. Both make the rules stricter, so they apply at once. When both hold, both lines show, off first. SteamGate's answer shows below these lines. If you drop this, neither line nor button is built.</span></div>
+    <div class="content">
+      <div class="head"><h1>SteamGate</h1></div>
+      <div class="stack">
+        <div class="danger"><span class="verdict wait">SteamGate is off.</span><button>Request turn on</button></div>
+        <div class="danger"><span class="verdict wait">Removal is allowed.</span><button>Stop allowing removal</button></div>
+        <div class="verdict now">Applied now.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>13. Proposed: how you open the status screen (your call)</b>
+      <span class="rule">Proposed: a "SteamGate" shortcut in the Start Menu, and nothing else. No desktop shortcut, nothing that opens it when you sign in, no tray icon. Other choices: also put a SteamGate shortcut on the desktop, or also open the screen every time you sign in. Pick one, change it, or keep the proposal.</span></div>
+    <div class="content">
+      <div class="rows">
+        <div class="row"><div class="name">Start Menu shortcut "SteamGate" (proposed)</div><span class="note">Opens the status screen</span><span></span></div>
+        <div class="row"><div class="name">Also a desktop shortcut</div><span class="note">Alternative</span><span></span></div>
+        <div class="row"><div class="name">Also open at sign-in</div><span class="note">Alternative</span><span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>14. Proposed: the program icon (your call)</b>
+      <span class="rule">Proposed: the default Windows program icon in the title bar, on the taskbar, and on the Start Menu shortcut. Alternative: a custom SteamGate icon, whose look you would approve on its own preview first.</span></div>
+    <div class="content">
+      <div class="rows">
+        <div class="row"><div class="name">Default Windows program icon (proposed)</div><span class="note">Title bar, taskbar, Start Menu</span><span></span></div>
+        <div class="row"><div class="name">Custom SteamGate icon</div><span class="note">Alternative</span><span></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="sample">Sample data. Nothing on this page is live or clickable.</p>

@@ -8,6 +8,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SteamGate.Service", "src\St
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SteamGate.Helper", "src\SteamGate.Helper\SteamGate.Helper.csproj", "{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A04}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SteamGate.Status", "src\SteamGate.Status\SteamGate.Status.csproj", "{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A05}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SteamGate.Tests", "tests\SteamGate.Tests\SteamGate.Tests.csproj", "{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A03}"
 EndProject
 Global
@@ -35,5 +37,9 @@ Global
 		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A04}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A04}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A05}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A05}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A05}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3F6B1C52-8A47-4D1E-9B0C-5E2A7D9C1A05}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

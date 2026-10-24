@@ -9,7 +9,7 @@ namespace SteamGate.Helper;
 /// <summary>
 /// Opens \\.\pipe\SteamGate with exactly the rights the pipe grants a standard user (read, write, read attributes,
 /// read extended attributes, read permissions, synchronize), never generic read or write, and refuses a pipe that
-/// a standard user's process created. The later status screen does the same; the test probe opens the pipe the same way but only records the owner.
+/// a standard user's process created. The status screen compiles this same file; the test probe opens the pipe the same way but only records the owner.
 /// </summary>
 internal static class PipeClient
 {

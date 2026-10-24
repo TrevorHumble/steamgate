@@ -15,4 +15,4 @@ appends a one-line entry to [BUILDLOG.md](BUILDLOG.md) on each commit.
 4. **0004 Time accounting.**
 5. **0005 Enforcement.**
 6. **0006 The lock.** Cooldown rules, including making uninstall and disable wait the cooldown.
-7. **0007 Status screen.** Its look is approved by Trevor on a preview before it is built.
+7. **0007 Status screen.** Its look is approved by Trevor on docs/preview-2026-10-21.html and docs/preview-2026-10-22-extras.html before it is built; his words are pinned as the `(status screen look)` amendment.

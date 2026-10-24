@@ -1,4 +1,6 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using SteamGate.Core.Rules;
 
 namespace SteamGate.Core.Pipe;
 
@@ -30,6 +32,7 @@ public abstract record PipeMessage
                 RequestMessage.TypeName => ParseRequest(root),
                 CancelMessage.TypeName => ParseCancel(root),
                 ReplyMessage.TypeName => ParseReply(root),
+                StateMessage.TypeName => ParseState(root),
                 _ => null,
             };
         }
@@ -80,53 +83,55 @@ public abstract record PipeMessage
         return new CloseMessage(game, displayName, processIds);
     }
 
-    private static RequestMessage? ParseRequest(JsonElement root)
-    {
-        if (!TryString(root, "requestId", out var requestId) || !TryString(root, "field", out var field))
-        {
-            return null;
-        }
+    private static RequestMessage? ParseRequest(JsonElement root) =>
+        TryString(root, "requestId", out var requestId) && TryString(root, "field", out var field)
+        && TryValueMembers(root, out var number, out var flag, out var folder, out var days)
+            ? new RequestMessage(requestId, field, number, flag, folder, days)
+            : null;
 
-        // A member that is present must be the right kind of value; a JSON null counts as absent.
-        int? number = null;
+    // The four optional value members of a request or a pending entry. A member that is present must be the right kind of
+    // value; a JSON null counts as absent. False when one is present and wrong.
+    private static bool TryValueMembers(JsonElement root, out int? number, out bool? flag, out string? folder, out List<string>? days)
+    {
+        number = null;
+        flag = null;
+        folder = null;
+        days = null;
         if (IsPresent(root, "number", out var numberElement))
         {
             if (numberElement.ValueKind != JsonValueKind.Number || !numberElement.TryGetInt32(out var parsedNumber))
             {
-                return null;
+                return false;
             }
 
             number = parsedNumber;
         }
 
-        bool? flag = null;
         if (IsPresent(root, "flag", out var flagElement))
         {
             if (flagElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             {
-                return null;
+                return false;
             }
 
             flag = flagElement.GetBoolean();
         }
 
-        string? folder = null;
         if (IsPresent(root, "folder", out var folderElement))
         {
             if (folderElement.ValueKind != JsonValueKind.String)
             {
-                return null;
+                return false;
             }
 
             folder = folderElement.GetString();
         }
 
-        List<string>? days = null;
         if (IsPresent(root, "days", out var daysElement))
         {
             if (daysElement.ValueKind != JsonValueKind.Array)
             {
-                return null;
+                return false;
             }
 
             days = [];
@@ -134,14 +139,14 @@ public abstract record PipeMessage
             {
                 if (day.ValueKind != JsonValueKind.String)
                 {
-                    return null;
+                    return false;
                 }
 
                 days.Add(day.GetString() ?? string.Empty);
             }
         }
 
-        return new RequestMessage(requestId, field, number, flag, folder, days);
+        return true;
     }
 
     private static CancelMessage? ParseCancel(JsonElement root) =>
@@ -173,6 +178,195 @@ public abstract record PipeMessage
         return new ReplyMessage(requestId, ok.GetBoolean(), message, pending);
     }
 
+    private static StateMessage? ParseState(JsonElement root)
+    {
+        if (!TryOptionalNumber(root, "remainingSeconds", out var remaining)
+            || !TryOptionalNumber(root, "tonightLimitMinutes", out var limit)
+            || !TryOptionalString(root, "counting", out var counting)
+            || !TryBool(root, "tonightWeekend", out var weekend)
+            || !TryDouble(root, "nightSeconds", out var night)
+            || !TryDouble(root, "weekSeconds", out var week)
+            || !TryBool(root, "helperConnected", out var helper)
+            || !root.TryGetProperty("settings", out var settingsElement)
+            || settingsElement.ValueKind != JsonValueKind.Object
+            || ParseStateSettings(settingsElement) is not { } settings
+            || !TryNamedFolders(root, "addable", out var addable))
+        {
+            return null;
+        }
+
+        // The limit is a whole number of minutes, or the line is not a state.
+        if (limit is { } minutes && (minutes != Math.Floor(minutes) || Math.Abs(minutes) > int.MaxValue))
+        {
+            return null;
+        }
+
+        return new StateMessage(remaining, limit is { } whole ? (int)whole : null, weekend, night, week, counting, helper, settings, addable);
+    }
+
+    private static StateSettings? ParseStateSettings(JsonElement root)
+    {
+        if (!TryInt(root, "weeknightMinutes", out var weeknight)
+            || !TryInt(root, "weekendNightMinutes", out var weekendNight)
+            || !TryInt(root, "weeklyCapMinutes", out var weekly)
+            || !TryInt(root, "cooldownHours", out var cooldown)
+            || !TryBool(root, "enabled", out var enabled)
+            || !TryBool(root, "allowUninstall", out var allowUninstall)
+            || !TryDayList(root, "weekendNights", out var nights)
+            || !TryNamedFolders(root, "notCounted", out var notCounted)
+            || !root.TryGetProperty("pending", out var pendingElement)
+            || pendingElement.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var pending = new List<PendingChange>();
+        foreach (var item in pendingElement.EnumerateArray())
+        {
+            if (ParsePending(item) is not { } entry)
+            {
+                return null;
+            }
+
+            pending.Add(entry);
+        }
+
+        return new StateSettings(weeknight, weekendNight, weekly, cooldown, enabled, allowUninstall, nights, notCounted, pending);
+    }
+
+    private static PendingChange? ParsePending(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !TryString(root, "id", out var idText)
+            || !Guid.TryParse(idText, out var id)
+            || !TryString(root, "field", out var field)
+            || !TryValueMembers(root, out var number, out var flag, out var folder, out var dayNames)
+            || !root.TryGetProperty("requestedUtc", out var requestedElement)
+            || requestedElement.ValueKind != JsonValueKind.String
+            || !requestedElement.TryGetDateTime(out var requested)
+            || !TryDouble(root, "remainingWaitSeconds", out var remaining))
+        {
+            return null;
+        }
+
+        IReadOnlyList<DayOfWeek>? days = null;
+        if (dayNames is not null)
+        {
+            if (!DayNames.TryParse(dayNames, out var parsed))
+            {
+                return null;
+            }
+
+            days = parsed;
+        }
+
+        return new PendingChange(id, field, number, flag, folder, days, requested, remaining);
+    }
+
+    private static bool TryNamedFolders(JsonElement root, string name, out IReadOnlyList<NamedFolder> folders)
+    {
+        folders = [];
+        if (!root.TryGetProperty(name, out var array) || array.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var parsed = new List<NamedFolder>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object || !TryString(item, "folder", out var folder) || !TryString(item, "displayName", out var displayName))
+            {
+                return false;
+            }
+
+            parsed.Add(new NamedFolder(folder, displayName));
+        }
+
+        folders = parsed;
+        return true;
+    }
+
+    private static bool TryDayList(JsonElement root, string name, out IReadOnlyList<DayOfWeek> days)
+    {
+        days = [];
+        if (!root.TryGetProperty(name, out var array) || array.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var names = new List<string>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            names.Add(item.GetString() ?? string.Empty);
+        }
+
+        return DayNames.TryParse(names, out days);
+    }
+
+    private static bool TryInt(JsonElement element, string name, out int value)
+    {
+        value = 0;
+        return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out value);
+    }
+
+    private static bool TryDouble(JsonElement element, string name, out double value)
+    {
+        value = 0;
+        return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number && property.TryGetDouble(out value);
+    }
+
+    private static bool TryBool(JsonElement element, string name, out bool value)
+    {
+        value = false;
+        if (!element.TryGetProperty(name, out var property) || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        value = property.GetBoolean();
+        return true;
+    }
+
+    // An absent member or a JSON null is null; anything present must be a number.
+    private static bool TryOptionalNumber(JsonElement element, string name, out double? value)
+    {
+        value = null;
+        if (!IsPresent(element, name, out var property))
+        {
+            return true;
+        }
+
+        if (property.ValueKind != JsonValueKind.Number || !property.TryGetDouble(out var parsed))
+        {
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
+
+    private static bool TryOptionalString(JsonElement element, string name, out string? value)
+    {
+        value = null;
+        if (!IsPresent(element, name, out var property))
+        {
+            return true;
+        }
+
+        if (property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString();
+        return true;
+    }
+
     // True when the property exists and is not a JSON null.
     private static bool IsPresent(JsonElement element, string name, out JsonElement value) =>
         element.TryGetProperty(name, out value) && value.ValueKind != JsonValueKind.Null;
@@ -189,10 +383,12 @@ public abstract record PipeMessage
         return false;
     }
 
-    internal static string Write(Action<Utf8JsonWriter> body)
+    internal static string Write(Action<Utf8JsonWriter> body) => Write(body, default);
+
+    internal static string Write(Action<Utf8JsonWriter> body, JsonWriterOptions options)
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        using (var writer = new Utf8JsonWriter(stream, options))
         {
             writer.WriteStartObject();
             body(writer);
@@ -328,4 +524,192 @@ public sealed record ReplyMessage(string RequestId, bool Ok, string Message, Gui
             writer.WriteString("pending", pending);
         }
     });
+}
+
+/// <summary>A folder under steamapps\common (an installed program or a not-counted entry) and the name to show for it.</summary>
+public sealed record NamedFolder(string Folder, string DisplayName);
+
+/// <summary>
+/// The rules as the state carries them: GateSettings without its countdown bookkeeping (LockClock), with the not-counted folders
+/// named for the screen. Pending entries are the settings' own PendingChange records.
+/// </summary>
+public sealed record StateSettings(
+    int WeeknightMinutes,
+    int WeekendNightMinutes,
+    int WeeklyCapMinutes,
+    int CooldownHours,
+    bool Enabled,
+    bool AllowUninstall,
+    IReadOnlyList<DayOfWeek> WeekendNights,
+    IReadOnlyList<NamedFolder> NotCounted,
+    IReadOnlyList<PendingChange> Pending)
+{
+    public bool Equals(StateSettings? other) =>
+        other is not null
+        && WeeknightMinutes == other.WeeknightMinutes && WeekendNightMinutes == other.WeekendNightMinutes
+        && WeeklyCapMinutes == other.WeeklyCapMinutes && CooldownHours == other.CooldownHours
+        && Enabled == other.Enabled && AllowUninstall == other.AllowUninstall
+        && WeekendNights.SequenceEqual(other.WeekendNights) && NotCounted.SequenceEqual(other.NotCounted)
+        && Pending.Count == other.Pending.Count && Pending.Zip(other.Pending).All(pair => StateMessage.SamePending(pair.First, pair.Second));
+
+    public override int GetHashCode() => HashCode.Combine(WeeknightMinutes, WeekendNightMinutes, WeeklyCapMinutes, CooldownHours, Enabled, AllowUninstall, NotCounted.Count, Pending.Count);
+}
+
+/// <summary>
+/// Server to status screen: where the user stands. Sent when something changed, at most once per tick. Lists compare by value.
+/// A state line can be longer than the lines a client sends, so it has its own cap.
+/// </summary>
+public sealed record StateMessage(
+    double? RemainingSeconds,
+    int? TonightLimitMinutes,
+    bool TonightWeekend,
+    double NightSeconds,
+    double WeekSeconds,
+    string? Counting,
+    bool HelperConnected,
+    StateSettings Settings,
+    IReadOnlyList<NamedFolder> Addable) : PipeMessage
+{
+    public const string TypeName = "state";
+
+    /// <summary>The longest state line, in bytes, not counting its newline (the same meaning as PipeLineReader.MaxLineBytes). The status screen and the probe read with this cap.</summary>
+    public const int MaxLineBytes = 524288;
+
+    // Relaxed escaping writes text as UTF-8; characters outside the Basic Multilingual Plane, control characters, and a lone surrogate stay escaped.
+    private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    public bool Equals(StateMessage? other) =>
+        other is not null
+        && RemainingSeconds == other.RemainingSeconds && TonightLimitMinutes == other.TonightLimitMinutes && TonightWeekend == other.TonightWeekend
+        && NightSeconds == other.NightSeconds && WeekSeconds == other.WeekSeconds && Counting == other.Counting && HelperConnected == other.HelperConnected
+        && Settings.Equals(other.Settings) && Addable.SequenceEqual(other.Addable);
+
+    public override int GetHashCode() => HashCode.Combine(RemainingSeconds, TonightLimitMinutes, NightSeconds, WeekSeconds, Counting, Settings, Addable.Count);
+
+    public override string Serialize() => Write(writer =>
+    {
+        writer.WriteString("type", TypeName);
+        WriteNumberOrNull(writer, "remainingSeconds", RemainingSeconds);
+        WriteNumberOrNull(writer, "tonightLimitMinutes", TonightLimitMinutes);
+        writer.WriteBoolean("tonightWeekend", TonightWeekend);
+        writer.WriteNumber("nightSeconds", NightSeconds);
+        writer.WriteNumber("weekSeconds", WeekSeconds);
+        if (Counting is null)
+        {
+            writer.WriteNull("counting");
+        }
+        else
+        {
+            writer.WriteString("counting", Counting);
+        }
+
+        writer.WriteBoolean("helperConnected", HelperConnected);
+        writer.WriteStartObject("settings");
+        writer.WriteNumber("weeknightMinutes", Settings.WeeknightMinutes);
+        writer.WriteNumber("weekendNightMinutes", Settings.WeekendNightMinutes);
+        writer.WriteNumber("weeklyCapMinutes", Settings.WeeklyCapMinutes);
+        writer.WriteNumber("cooldownHours", Settings.CooldownHours);
+        writer.WriteBoolean("enabled", Settings.Enabled);
+        writer.WriteBoolean("allowUninstall", Settings.AllowUninstall);
+        WriteDays(writer, "weekendNights", Settings.WeekendNights);
+        WriteNamedFolders(writer, "notCounted", Settings.NotCounted);
+        writer.WriteStartArray("pending");
+        foreach (var entry in Settings.Pending)
+        {
+            WritePending(writer, entry);
+        }
+
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        WriteNamedFolders(writer, "addable", Addable);
+    }, WriterOptions);
+
+    /// <summary>The bytes one addable entry takes in a state line, so the sender can fit a list into the cap without serializing the whole line again for each entry.</summary>
+    internal static int EntryBytes(NamedFolder entry)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+        {
+            WriteNamedFolder(writer, entry);
+        }
+
+        return (int)stream.Length;
+    }
+
+    internal static bool SamePending(PendingChange left, PendingChange right) =>
+        left.Id == right.Id && left.Field == right.Field && left.Number == right.Number && left.Flag == right.Flag && left.Folder == right.Folder
+        && (left.Days is null ? right.Days is null : right.Days is not null && left.Days.SequenceEqual(right.Days))
+        && left.RequestedUtc == right.RequestedUtc && left.RemainingWaitSeconds == right.RemainingWaitSeconds;
+
+    private static void WriteNumberOrNull(Utf8JsonWriter writer, string name, double? value)
+    {
+        if (value is { } number)
+        {
+            writer.WriteNumber(name, number);
+        }
+        else
+        {
+            writer.WriteNull(name);
+        }
+    }
+
+    private static void WriteDays(Utf8JsonWriter writer, string name, IEnumerable<DayOfWeek> days)
+    {
+        writer.WriteStartArray(name);
+        foreach (var day in days)
+        {
+            writer.WriteStringValue(day.ToString());
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteNamedFolders(Utf8JsonWriter writer, string name, IEnumerable<NamedFolder> folders)
+    {
+        writer.WriteStartArray(name);
+        foreach (var folder in folders)
+        {
+            WriteNamedFolder(writer, folder);
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteNamedFolder(Utf8JsonWriter writer, NamedFolder entry)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("folder", entry.Folder);
+        writer.WriteString("displayName", entry.DisplayName);
+        writer.WriteEndObject();
+    }
+
+    private static void WritePending(Utf8JsonWriter writer, PendingChange entry)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("id", entry.Id);
+        writer.WriteString("field", entry.Field);
+        if (entry.Number is { } number)
+        {
+            writer.WriteNumber("number", number);
+        }
+
+        if (entry.Flag is { } flag)
+        {
+            writer.WriteBoolean("flag", flag);
+        }
+
+        if (entry.Folder is not null)
+        {
+            writer.WriteString("folder", entry.Folder);
+        }
+
+        if (entry.Days is not null)
+        {
+            WriteDays(writer, "days", entry.Days);
+        }
+
+        writer.WriteString("requestedUtc", entry.RequestedUtc);
+        writer.WriteNumber("remainingWaitSeconds", entry.RemainingWaitSeconds);
+        writer.WriteEndObject();
+    }
 }

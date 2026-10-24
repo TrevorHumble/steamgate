@@ -36,6 +36,13 @@ public sealed class ConnectionRulesTests
     }
 
     [Fact]
+    public void ClientStateDrops()
+    {
+        Assert.NotNull(ConnectionRules.AcceptedHello(new HelloMessage("status")));
+        Assert.True(ConnectionRules.DropsOnClientMessage(Status.StateFixtures.State()));
+    }
+
+    [Fact]
     public void StatusMaySendRequests()
     {
         var hello = ConnectionRules.AcceptedHello(new HelloMessage("status"));

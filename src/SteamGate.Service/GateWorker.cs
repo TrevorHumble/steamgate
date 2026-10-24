@@ -7,6 +7,7 @@ using SteamGate.Core.Accounting;
 using SteamGate.Core.Enforcement;
 using SteamGate.Core.Pipe;
 using SteamGate.Core.Rules;
+using SteamGate.Core.Status;
 using SteamGate.Core.Steam;
 
 namespace SteamGate.Service;
@@ -40,6 +41,9 @@ internal sealed class GateWorker : BackgroundService
     private readonly ChannelReader<SettingsCommand> _commands;
     private readonly RateLimitedLog _requestLog;
     private long _tickCount;
+
+    // True after a state failure was logged, until a state has been published again.
+    private bool _stateFailureLogged;
 
     // The one in-memory copy of the settings, loaded at start and never re-read from disk. The lock changes it inside RunTickAsync,
     // before the matcher, Budget, and the planner read it, so a change that applies takes effect in the same tick.
@@ -200,8 +204,37 @@ internal sealed class GateWorker : BackgroundService
             Settings = _settings,
         };
         Enforce(snapshot);
-        _snapshots.Publish(snapshot with { HelperConnected = _pipe.HelperConnected });
+        var published = snapshot with { HelperConnected = _pipe.HelperConnected };
+        _snapshots.Publish(published);
+        PublishState(published, localNow);
         return Task.CompletedTask;
+    }
+
+    // Hands the status screens the new state. A failure here is logged once and never stops counting or enforcement.
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "The status screen is a convenience; a failure building or posting its state must not stop counting or enforcement.")]
+    private void PublishState(GateSnapshot snapshot, DateTime localNow)
+    {
+        try
+        {
+            if (!_pipe.StatusConnected)
+            {
+                return;
+            }
+
+            if (StatusState.From(snapshot, localNow) is { } state)
+            {
+                _pipe.PublishState(state);
+                _stateFailureLogged = false;
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (!_stateFailureLogged)
+            {
+                _stateFailureLogged = true;
+                _log.Write("state unavailable " + ex.Message);
+            }
+        }
     }
 
     // The lock, in this order: count the pending entries down, answer the requests that arrived, apply the entries that are due.

@@ -24,6 +24,8 @@ When the checks pass (the green checkmark on a build), these things have been co
 
 - **The lock holds.** CI proves an uninstall is refused until removal is allowed, and unit tests prove allowing removal waits the full cooldown, a loosening change waits, and a tightening change applies at once.
 
+- **The status screen is linked to SteamGate.** Every build checks the status screen's link to SteamGate on a Windows test machine: a test program that talks to SteamGate the way the status screen does receives tonight's limit, the weeknight limit, the cooldown, and the not-counted list, and the real status screen program connects, runs only one copy per sign-in (a second start closes at once), and closes cleanly. Installing adds a SteamGate Start Menu shortcut and removing SteamGate takes it away. No build check proves the real status screen reads and shows the time and rules; you see that on the first real install.
+
 These run on their own, the same way every time, on every build. You don't have to ask for them or stand over them.
 
 ---
@@ -32,6 +34,6 @@ These run on their own, the same way every time, on every build. You don't have 
 
 A machine can prove the math is right. It cannot prove the result **looks** right, or that it's what you actually **meant**. That judgment is yours.
 
-The helper's part is not machine-checked either. The build machine may have no signed-in user, so the build does not prove that the helper draws the warning overlay, that it asks the game to close (the polite close), or that the service launches it; those are looked at on the first real install on this PC. The look of the status screen and of the warning overlay is not machine-checked: you approve each on a preview before it is built (the status screen is issue 0007; you approved the warning overlay on 2026-10-21). The checks above guarantee the logic is correct; the preview is for the one question they can't answer: *is this what I wanted?* That's your call, as the director.
+The helper's part is not machine-checked either. The build machine may have no signed-in user, so the build does not prove that the helper draws the warning overlay, that it asks the game to close (the polite close), or that the service launches it; those are looked at on the first real install on this PC. The look of the status screen and of the warning overlay is not machine-checked: you approve each on a preview before it is built (the status screen on two previews, the screen itself and its extra states, with your words pinned in docs/approved-spec-2026-10-20.md; the warning overlay on 2026-10-21). The checks above guarantee the logic is correct; the preview is for the one question they can't answer: *is this what I wanted?* That's your call, as the director.
 
 Put simply: **green means the work is correct and built to standard. Whether it's the right work is still your eye.**
