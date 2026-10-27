@@ -23,7 +23,7 @@ builder.Services.AddSingleton(new GateLog(SteamGatePaths.DataFolder));
 builder.Services.AddSingleton<SnapshotHolder>();
 
 // Requests from the pipe to the worker: one bounded channel (a full channel answers "Busy, try again." at once), and one log limiter for request lines.
-builder.Services.AddSingleton(Channel.CreateBounded<SettingsCommand>(new BoundedChannelOptions(32)
+builder.Services.AddSingleton(Channel.CreateBounded<WorkerCommand>(new BoundedChannelOptions(32)
 {
     FullMode = BoundedChannelFullMode.Wait,
     SingleReader = true,

@@ -1,3 +1,5 @@
+using SteamGate.Core.Accounting;
+using SteamGate.Core.Extend;
 using SteamGate.Core.Pipe;
 using SteamGate.Core.Rules;
 using SteamGate.Core.Status;
@@ -6,7 +8,7 @@ using SteamGate.Status.Ui;
 namespace SteamGate.Status;
 
 /// <summary>
-/// The status screen's content: the heading, the two meters, the Rules, Waiting to apply, Not counted, and Turn off or remove sections,
+/// The status screen's content: the heading, the two meters, Extend tonight, the Rules, Waiting to apply, Not counted, and Turn off or remove sections,
 /// built to the approved previews from StatusStyle and the texts of StatusText. It keeps what the user has done on the screen (the
 /// open editor, what is typed, the chosen program, the answers to requests) in an EditorState, and sends requests through the callback it was given.
 /// All of it runs on the window's thread.
@@ -38,6 +40,14 @@ internal sealed class StatusPage : VBox
     private readonly FlatButton _addRequest;
     private readonly Verdict _addPanelLine;
     private readonly TextBlock _turnOffNote;
+    private readonly Verdict _extendReplyTop;
+    private readonly Surface _extendBox;
+    private readonly List<(int Minutes, FlatButton Button)> _extendLengths = [];
+    private readonly Verdict _extendExplain;
+    private readonly FlowBox _extendActionLine;
+    private readonly Verdict _extendReplyBelow;
+    private readonly TextBlock _extendNote;
+    private ExtendSectionView? _extendView;
 
     private StateMessage? _state;
     private EditorState _editor = EditorState.Empty;
@@ -89,6 +99,40 @@ internal sealed class StatusPage : VBox
         _meters.Controls.Add(_tonight);
         _meters.Controls.Add(_week);
         Controls.Add(_meters);
+
+        // Extend tonight. Its answer line is not one of the generic replies: where it sits and whether it shows come from StatusView.ExtendSection.
+        var extend = Section(ExtendText.Heading);
+        _extendReplyTop = new Verdict(look) { Shown = false };
+        _extendBox = new Surface(look, look.AccentSoft, null, StatusStyle.EditorRadius, 0, StatusStyle.EditorPaddingY, StatusStyle.EditorPaddingX)
+        {
+            Gap = look.Px(StatusStyle.EditorGap),
+        };
+        var extendLine = new FlowBox { Gap = look.Px(StatusStyle.EditorLineGap), RowGap = look.Px(StatusStyle.EditorLineGap) };
+        extendLine.Controls.Add(new TextBlock(look.Body(StatusStyle.BodyFont), look.Fg) { Value = ExtendText.RoundLabel });
+        foreach (var length in NightExtension.Lengths)
+        {
+            var minutes = length;
+            var button = Button(ExtendText.Length(minutes), () => PickExtend(minutes), () => ExtendEnabled(minutes));
+            _extendLengths.Add((minutes, button));
+            extendLine.Controls.Add(button);
+        }
+
+        _extendExplain = new Verdict(look) { Shown = false };
+        _extendActionLine = new FlowBox { Gap = look.Px(StatusStyle.EditorLineGap), RowGap = look.Px(StatusStyle.EditorLineGap), Shown = false };
+        _extendActionLine.Controls.Add(Button(ExtendText.ExtendButton, SendExtend, primary: true));
+        _extendBox.Controls.Add(extendLine);
+        _extendBox.Controls.Add(_extendExplain);
+        _extendBox.Controls.Add(_extendActionLine);
+        _extendReplyBelow = new Verdict(look) { Shown = false, Margin = new Padding(0, look.Px(StatusStyle.ReplyGapAbove), 0, 0) };
+        _extendNote = new TextBlock(look.Body(StatusStyle.NoteFont), look.Muted)
+        {
+            Wrap = true,
+            Margin = new Padding(0, look.Px(StatusStyle.NoteParagraphMargin), 0, look.Px(StatusStyle.NoteParagraphMargin)),
+        };
+        extend.Controls.Add(_extendReplyTop);
+        extend.Controls.Add(_extendBox);
+        extend.Controls.Add(_extendReplyBelow);
+        extend.Controls.Add(_extendNote);
 
         // Rules.
         var rules = Section("Rules");
@@ -151,7 +195,7 @@ internal sealed class StatusPage : VBox
         turnOff.Controls.Add(danger);
         turnOff.Controls.Add(Reply(ReplySection.TurnOff));
 
-        foreach (var section in new[] { rules, waiting, notCounted, turnOff })
+        foreach (var section in new[] { extend, rules, waiting, notCounted, turnOff })
         {
             section.Shown = false;
             _sections.Add(section);
@@ -203,7 +247,14 @@ internal sealed class StatusPage : VBox
     public void ShowState(StateMessage state)
     {
         _state = state;
-        _editor = StatusView.Merge(_editor, state);
+        _editor = StatusView.Merge(_editor, state, NightClock.NightOf(DateTime.Now));
+        Render();
+    }
+
+    /// <summary>The connection ended: an Extend request still waiting will get no answer, so the wait ends.</summary>
+    public void ConnectionLost()
+    {
+        _editor = StatusView.ConnectionLost(_editor);
         Render();
     }
 
@@ -212,7 +263,9 @@ internal sealed class StatusPage : VBox
     {
         if (_requests.TryComplete(reply.RequestId, out var section))
         {
-            _editor = _editor.WithReply(section, reply.Message);
+            _editor = section == ReplySection.Extend
+                ? StatusView.ExtendAnswered(_editor, reply.Message, reply.Ok, NightClock.NightOf(DateTime.Now))
+                : _editor.WithReply(section, reply.Message);
             Render();
         }
     }
@@ -416,6 +469,34 @@ internal sealed class StatusPage : VBox
         return true;
     }
 
+    // A click on a length picks it, unless an Extend request is still waiting for its answer.
+    private void PickExtend(int minutes)
+    {
+        if (StatusView.ExtendClickAllowed(_editor))
+        {
+            _editor = StatusView.ExtendPick(_editor, minutes);
+            Render();
+        }
+    }
+
+    // Sends the picked length. The editor changes only after the message was sent; a send that fails leaves everything as it was.
+    private void SendExtend()
+    {
+        if (!StatusView.ExtendClickAllowed(_editor) || _extendView?.Buttons.FirstOrDefault(button => button.Picked) is not { } picked)
+        {
+            return;
+        }
+
+        if (_send(StatusRequests.Extend(NextId(), picked.Minutes)))
+        {
+            _requests.Begin(ReplySection.Extend);
+            _editor = StatusView.ExtendSent(_editor, picked.Minutes);
+            Render();
+        }
+    }
+
+    private bool ExtendEnabled(int minutes) => _extendView?.Buttons.FirstOrDefault(button => button.Minutes == minutes)?.Enabled ?? false;
+
     private void SendFlag(string field, bool value, ReplySection section) => Send(id => StatusRequests.Flag(id, field, value), section);
 
     private void SendAdd()
@@ -563,10 +644,11 @@ internal sealed class StatusPage : VBox
         _headStack.Shown = _offLine.Shown || _removalLine.Shown || _editor.ReplyOf(ReplySection.Head) is not null;
 
         var tonightLimit = StatusText.TonightLimit(state);
-        _tonight.Set(StatusText.TonightLabel(state.TonightWeekend), StatusText.TonightLeft(state), StatusText.FillPercent(state.NightSeconds, tonightLimit), StatusText.Used(state.NightSeconds, tonightLimit));
+        _tonight.Set(StatusText.TonightLabel(state.TonightWeekend), StatusText.TonightLeft(state), StatusText.FillPercent(state.NightSeconds, tonightLimit), StatusText.TonightUsed(state));
         var cap = state.Settings.WeeklyCapMinutes;
-        _week.Set(StatusText.WeekLabel, StatusText.WeekLeft(state), StatusText.FillPercent(state.WeekSeconds, cap), StatusText.Used(state.WeekSeconds, cap));
+        _week.Set(StatusText.WeekLabel, StatusText.WeekLeft(state), StatusText.FillPercent(state.WeekSeconds, cap), StatusText.WeekUsed(state));
 
+        RenderExtend(state);
         RenderRules(state);
         RenderPending(state);
         RenderNotCounted(state);
@@ -575,6 +657,37 @@ internal sealed class StatusPage : VBox
 
         RefreshEnabled();
         LayoutNeeded?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void RenderExtend(StateMessage state)
+    {
+        var view = StatusView.ExtendSection(state, _editor);
+        _extendView = view;
+        var done = view.Layout == ExtendLayout.Done;
+        foreach (var line in new[] { _extendReplyTop, _extendReplyBelow })
+        {
+            if (view.Reply is { } reply)
+            {
+                line.Set(reply, StatusText.ReplyIsNow(reply) ? VerdictKind.Now : VerdictKind.Wait);
+            }
+        }
+
+        _extendReplyTop.Shown = done && view.Reply is not null;
+        _extendReplyBelow.Shown = !done && view.Reply is not null;
+        _extendBox.Shown = !done;
+        foreach (var (minutes, button) in _extendLengths)
+        {
+            button.Primary = view.Buttons.Any(item => item.Minutes == minutes && item.Picked);
+        }
+
+        _extendExplain.Shown = view.Explanation is not null;
+        if (view.Explanation is { } explanation)
+        {
+            _extendExplain.Set(explanation, VerdictKind.Wait);
+        }
+
+        _extendActionLine.Shown = view.Explanation is not null;
+        _extendNote.Value = view.Note;
     }
 
     private void RenderRules(StateMessage state)

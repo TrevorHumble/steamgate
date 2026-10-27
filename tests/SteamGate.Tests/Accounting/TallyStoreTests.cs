@@ -114,4 +114,72 @@ public sealed class TallyStoreTests
 
         Assert.True(store.Save(Sample with { NightSeconds = 0, WeekSeconds = 0 }));
     }
+
+    [Fact]
+    public void ExtensionRoundTrips()
+    {
+        using var temp = new TempFolder();
+        var store = new TallyStore(temp.Folder);
+        store.Load();
+        var tally = Sample with { Extension = new NightExtension(new DateOnly(2026, 10, 26), 20) };
+
+        Assert.True(store.Save(tally));
+
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(temp.PathOf("tally.json")));
+        var extension = document.RootElement.GetProperty("extension");
+        Assert.Equal("2026-10-26", extension.GetProperty("night").GetString());
+        Assert.Equal(20, extension.GetProperty("minutes").GetInt32());
+        Assert.Equal(tally, new TallyStore(temp.Folder).Load().Value);
+    }
+
+    [Fact]
+    public void OldFileLoadsWithNoExtension()
+    {
+        using var temp = new TempFolder();
+        File.WriteAllText(temp.PathOf("tally.json"), """{"night":"2026-10-26","nightSeconds":100,"week":"2026-10-26","weekSeconds":200,"lastCountedUtc":null}""");
+
+        var result = new TallyStore(temp.Folder).Load();
+
+        Assert.False(result.Corrupt);
+        Assert.Null(result.Value.Extension);
+        Assert.Equal(new Tally(new DateOnly(2026, 10, 26), 100, new DateOnly(2026, 10, 26), 200, null), result.Value);
+    }
+
+    [Theory]
+    [InlineData(25)]
+    [InlineData(0)]
+    [InlineData(-10)]
+    [InlineData(40)]
+    public void BadExtensionIsCorrupt(int minutes)
+    {
+        using var temp = new TempFolder();
+        File.WriteAllText(temp.PathOf("tally.json"), "{\"night\":\"2026-10-26\",\"nightSeconds\":5,\"extension\":{\"night\":\"2026-10-26\",\"minutes\":" + minutes + "}}");
+
+        var result = new TallyStore(temp.Folder).Load();
+
+        Assert.True(result.Corrupt);
+        Assert.Equal(Tally.Empty, result.Value);
+        Assert.Single(Directory.GetFiles(temp.Folder, "tally.corrupt-*"));
+
+        var store = new TallyStore(temp.Folder);
+        Assert.True(store.Save(Sample));
+        var before = File.ReadAllText(temp.PathOf("tally.json"));
+        Assert.False(store.Save(Sample with { Extension = new NightExtension(new DateOnly(2026, 10, 26), minutes) }));
+        Assert.Equal(before, File.ReadAllText(temp.PathOf("tally.json")));
+    }
+
+    [Fact]
+    public void AnExtensionForAnotherNightIsNotCorrupt()
+    {
+        using var temp = new TempFolder();
+        var store = new TallyStore(temp.Folder);
+        var tally = Sample with { Extension = new NightExtension(new DateOnly(2026, 10, 20), 10) };
+
+        Assert.True(store.Save(tally));
+        var loaded = new TallyStore(temp.Folder).Load();
+
+        Assert.False(loaded.Corrupt);
+        Assert.Equal(tally, loaded.Value);
+        Assert.Equal([10, 20, 30], NightExtension.Lengths);
+    }
 }

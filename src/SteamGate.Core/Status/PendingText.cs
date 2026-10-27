@@ -18,11 +18,11 @@ public static class PendingText
         return entry.Field switch
         {
             ChangeFields.WeeknightMinutes when entry.Number is { } minutes =>
-                $"Weeknight limit: {StatusText.Minutes(settings.WeeknightMinutes)} to {StatusText.Minutes(minutes)}",
+                $"Weeknight limit: {DurationText.Minutes(settings.WeeknightMinutes)} to {DurationText.Minutes(minutes)}",
             ChangeFields.WeekendNightMinutes when entry.Number is { } minutes =>
-                $"Weekend night limit: {StatusText.Minutes(settings.WeekendNightMinutes)} to {StatusText.Minutes(minutes)}",
+                $"Weekend night limit: {DurationText.Minutes(settings.WeekendNightMinutes)} to {DurationText.Minutes(minutes)}",
             ChangeFields.WeeklyCapMinutes when entry.Number is { } minutes =>
-                $"Weekly cap: {StatusText.Minutes(settings.WeeklyCapMinutes)} to {StatusText.Minutes(minutes)}",
+                $"Weekly cap: {DurationText.Minutes(settings.WeeklyCapMinutes)} to {DurationText.Minutes(minutes)}",
             ChangeFields.CooldownHours when entry.Number is { } hours =>
                 $"Cooldown: {StatusText.Hours(settings.CooldownHours)} to {StatusText.Hours(hours)}",
             ChangeFields.WeekendNightsAdd when entry.Days is { } days =>

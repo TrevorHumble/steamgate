@@ -3,7 +3,7 @@ using System.Globalization;
 namespace SteamGate.Core.Rules;
 
 /// <summary>
-/// The service.log lines for the lock. Only fixed field names, results, and numbers appear: no client-supplied text, and never a folder
+/// The service.log lines for the lock and the Extend button. Only fixed field names, results, and numbers appear: no client-supplied text, and never a folder
 /// name, so a client cannot forge a line.
 /// </summary>
 public static class ChangeLog
@@ -15,6 +15,10 @@ public static class ChangeLog
     /// <summary>"cancel applied pid=12 session=1".</summary>
     public static string Cancel(string result, int pid, int session) =>
         string.Create(CultureInfo.InvariantCulture, $"cancel {result} pid={pid} session={session}");
+
+    /// <summary>"extend applied pid=12 session=1".</summary>
+    public static string Extend(string result, int pid, int session) =>
+        string.Create(CultureInfo.InvariantCulture, $"extend {result} pid={pid} session={session}");
 
     /// <summary>The result word a command the full channel turned away is logged with.</summary>
     public const string Busy = "busy";

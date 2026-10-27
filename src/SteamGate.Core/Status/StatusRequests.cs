@@ -22,5 +22,7 @@ public static class StatusRequests
     public static RequestMessage WeekendNights(string requestId, IEnumerable<DayOfWeek> days) =>
         new(requestId, ChangeFields.WeekendNights, null, null, null, [.. DayNames.MondayFirst(days).Select(day => day.ToString())]);
 
+    public static ExtendMessage Extend(string requestId, int minutes) => new(requestId, minutes);
+
     public static CancelMessage Cancel(string requestId, Guid pendingId) => new(requestId, pendingId);
 }

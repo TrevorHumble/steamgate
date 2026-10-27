@@ -71,4 +71,23 @@ public sealed class NightClockTests
 
         Assert.Equal(new Tally(new DateOnly(2026, 10, 22), 0, new DateOnly(2026, 10, 19), 0, null), result);
     }
+
+    [Fact]
+    public void ExtensionLivesOneNight()
+    {
+        var tonight = new DateOnly(2026, 10, 26);
+        var tally = new Tally(tonight, 5000, tonight, 9000, null, new NightExtension(tonight, 20));
+
+        Assert.Equal(tally, NightClock.RollOver(tally, new DateTime(2026, 10, 26, 21, 0, 0)));
+        Assert.Equal(tally, NightClock.RollOver(tally, new DateTime(2026, 10, 27, 3, 59, 0)));
+
+        var next = NightClock.RollOver(tally, new DateTime(2026, 10, 27, 4, 0, 0));
+        Assert.Equal(new DateOnly(2026, 10, 27), next.Night);
+        Assert.Equal(0, next.NightSeconds);
+        Assert.Equal(9000, next.WeekSeconds);
+        Assert.Null(next.Extension);
+
+        var stale = tally with { Extension = new NightExtension(new DateOnly(2026, 10, 25), 20) };
+        Assert.Null(NightClock.RollOver(stale, new DateTime(2026, 10, 26, 21, 0, 0)).Extension);
+    }
 }

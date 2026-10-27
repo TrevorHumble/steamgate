@@ -13,8 +13,9 @@ public static class Accountant
 
     /// <summary>
     /// Returns the tally after one tick. The night and week roll over first. When any game is open, the step
-    /// (never more than maxStep, never below 0) is added once to the night and the week, however many games are open,
-    /// and LastCountedUtc becomes utcNow. When no game is open nothing is added and LastCountedUtc becomes null.
+    /// (never more than maxStep, never below 0) is added once to the night, however many games are open, and the week gets
+    /// ExtensionCost.WeekCharge for it (the settings give the original limit), and LastCountedUtc becomes utcNow.
+    /// When no game is open nothing is added and LastCountedUtc becomes null.
     /// </summary>
     public static Tally Tick(
         Tally current,
@@ -22,7 +23,8 @@ public static class Accountant
         DateTime utcNow,
         TimeSpan monotonicStep,
         TimeSpan maxStep,
-        IReadOnlyCollection<RunningGame> openGames)
+        IReadOnlyCollection<RunningGame> openGames,
+        GateSettings settings)
     {
         var rolled = NightClock.RollOver(current, localNow);
         if (openGames.Count == 0)
@@ -34,7 +36,8 @@ public static class Accountant
         return rolled with
         {
             NightSeconds = rolled.NightSeconds + seconds,
-            WeekSeconds = rolled.WeekSeconds + seconds,
+            WeekSeconds = rolled.WeekSeconds + ExtensionCost.WeekCharge(
+                rolled.NightSeconds, seconds, Budget.OriginalLimitSeconds(settings, localNow), rolled.HasExtension),
             LastCountedUtc = utcNow,
         };
     }

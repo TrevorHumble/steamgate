@@ -52,3 +52,13 @@ Nothing else in the spec changes.
 Trevor, in chat with the build session on 2026-10-23, after the build session listed what was left (the status screen look on `docs/preview-2026-10-21.html`, and the cards on `docs/preview-2026-10-22-extras.html`: the extra texts and states, the "SteamGate is off" lines and buttons, how the screen is opened, and the program icon) and asked him to look at them and say what he approves or wants changed: "looks good my man".
 He changed no card. The status screen look on `docs/preview-2026-10-21.html` and every card of `docs/preview-2026-10-22-extras.html` are approved as proposed: the Start Menu shortcut only, the default Windows program icon, and the "SteamGate is off" and "Removal is allowed" lines with their buttons (cards 12, 13, and 14).
 Nothing else in the spec changes.
+
+## Amendment 2026-10-26 (extension button)
+
+Trevor, in chat with the build session on 2026-10-26: "I want a extension button, because competitive games happen in rounts, up to 30 minutes, counts double towards my weekly rate". When asked how it should work he said: "I think I can pick the time of how much time I add, but I get. Let's have some quick options at 10, 20, and 30 minutes. Once per night. I'd say, yeah, only 30 minutes before the limit ends. Okay. Let's just say there's going to be an interface for this, right? Like a window. Just say in that interface."
+So: the status screen gets an Extend button. In the last 30 minutes before tonight's limit he can add 10, 20, or 30 minutes to tonight's limit, once per night. The extension applies at once. This is the one loosening that does not wait the cooldown; it replaces "Any change that loosens a rule ... waits the full cooldown" for this button only, and wins over it.
+Minutes played past tonight's original limit count double toward the weekly cap: only the minutes actually played past the old limit are doubled, and extension time he does not use costs nothing. Trevor, same day, on being told this: "say I extend 30 minutes but I only use 15. The round enters early, then I shouldn't be charged 60 minutes, I should be charged 30." (15 minutes played past the old limit, doubled, is 30.) The weekly cap stays hard: a length that would not fit in what is left this week is not offered. The Extend section is always shown, greyed with the reason when it is not available.
+Trevor approved the look on `docs/preview-2026-10-26-extend.html` on 2026-10-26: "looks good".
+On 2026-10-27 Trevor answered "yes do that" to the fixed note "Not enough time left this week." (no numbers), shown when one or more lengths are greyed only because of the week; it replaces the preview's third-card sentence.
+
+Nothing else in the spec changes.

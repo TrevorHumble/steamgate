@@ -1,5 +1,6 @@
 using System.Globalization;
 using SteamGate.Core.Enforcement;
+using SteamGate.Core.Extend;
 using SteamGate.Core.Pipe;
 using SteamGate.Core.Rules;
 
@@ -8,7 +9,7 @@ namespace SteamGate.Core.Status;
 /// <summary>
 /// The numbers and wording of the status screen that come from the state or SteamGate's answer: time left and used, the meter labels,
 /// days and times, waiting-change timing, the reply colors, the rules and not-connected lines, and the two card 12 lines with their buttons
-/// ("Request turn on" and "Stop allowing removal"). The Rules row names and unit notes are in StatusView. Section headings, the other button
+/// ("Request turn on" and "Stop allowing removal"). The Rules row names and unit notes are in StatusView. Section headings other than Extend tonight (ExtendText), the other button
 /// labels, the add-box label, the title, and the day abbreviations on the check boxes are fixed text in SteamGate.Status and are not
 /// machine-checked. Times use the invariant culture, which spells days, months, and AM/PM as en-US does.
 /// </summary>
@@ -31,16 +32,8 @@ public static class StatusText
 
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
 
-    /// <summary>"45 min", "1 h", "1 h 30 min": under an hour in minutes, else whole hours with the minutes left over when there are any.</summary>
-    public static string Minutes(int minutes) =>
-        minutes < 60
-            ? string.Create(Culture, $"{minutes} min")
-            : minutes % 60 == 0
-                ? string.Create(Culture, $"{minutes / 60} h")
-                : string.Create(Culture, $"{minutes / 60} h {minutes % 60} min");
-
     /// <summary>The time left, from seconds: whole minutes rounded up, the same number a warning shows.</summary>
-    public static string Left(double seconds) => Minutes(WarnMinutes.FromRemaining(seconds));
+    public static string Left(double seconds) => DurationText.Minutes(WarnMinutes.FromRemaining(seconds));
 
     /// <summary>What is left tonight: the night's limit minus tonight's use, never below 0.</summary>
     public static string TonightLeft(StateMessage state) =>
@@ -50,9 +43,21 @@ public static class StatusText
     public static string WeekLeft(StateMessage state) =>
         Left((state.Settings.WeeklyCapMinutes * 60.0) - state.WeekSeconds);
 
-    /// <summary>Tonight's limit in minutes: the one the service sent, else the weeknight or weekend-night limit for tonight.</summary>
+    /// <summary>Tonight's limit in minutes: the one the service sent, else the weeknight or weekend-night limit for tonight plus tonight's extension.</summary>
     public static int TonightLimit(StateMessage state) =>
-        state.TonightLimitMinutes ?? (state.TonightWeekend ? state.Settings.WeekendNightMinutes : state.Settings.WeeknightMinutes);
+        state.TonightLimitMinutes
+        ?? ((state.TonightWeekend ? state.Settings.WeekendNightMinutes : state.Settings.WeeknightMinutes) + state.ExtensionMinutes);
+
+    /// <summary>Tonight's limit without the extension, in seconds: the line where time starts to count double toward the week.</summary>
+    public static double OriginalLimitSeconds(StateMessage state) => (TonightLimit(state) - state.ExtensionMinutes) * 60.0;
+
+    /// <summary>The Tonight meter's used line, with the extension noted when tonight has one: "78 of 110 min used (20 min extension)".</summary>
+    public static string TonightUsed(StateMessage state) =>
+        Used(state.NightSeconds, TonightLimit(state)) + (state.ExtensionMinutes > 0 ? ExtendText.TonightSuffix(state.ExtensionMinutes) : string.Empty);
+
+    /// <summary>The This week meter's used line, with the doubling noted when tonight has an extension.</summary>
+    public static string WeekUsed(StateMessage state) =>
+        Used(state.WeekSeconds, state.Settings.WeeklyCapMinutes) + (state.ExtensionMinutes > 0 ? ExtendText.WeekSuffix : string.Empty);
 
     /// <summary>
     /// "47 of 90 min used" when the limit is not a whole number of hours, else "6 h 10 min of 10 h used". Used minutes round down.
@@ -62,7 +67,7 @@ public static class StatusText
         var used = (int)Math.Floor(Math.Max(0, usedSeconds) / 60);
         return limitMinutes % 60 != 0
             ? string.Create(Culture, $"{used} of {limitMinutes} min used")
-            : $"{Minutes(used)} of {Minutes(limitMinutes)} used";
+            : $"{DurationText.Minutes(used)} of {DurationText.Minutes(limitMinutes)} used";
     }
 
     /// <summary>How full the bar is: 0 to 100, rounded; 100 when the limit is 0.</summary>
@@ -101,12 +106,12 @@ public static class StatusText
     /// <summary>"48 h".</summary>
     public static string Hours(int hours) => string.Create(Culture, $"{hours} h");
 
-    /// <summary>True when SteamGate's reply says the change applied now (green); every other reply is amber.</summary>
+    /// <summary>True when SteamGate's reply says the change or the extension applied now (green); every other reply is amber.</summary>
     public static bool ReplyIsNow(string text)
     {
         var withoutSuffix = text.EndsWith(ChangeReply.SaveFailedSuffix, StringComparison.Ordinal)
             ? text[..^ChangeReply.SaveFailedSuffix.Length]
             : text;
-        return withoutSuffix == ChangeReply.AppliedNow;
+        return withoutSuffix == ChangeReply.AppliedNow || withoutSuffix.StartsWith(ExtendText.AppliedPrefix, StringComparison.Ordinal);
     }
 }

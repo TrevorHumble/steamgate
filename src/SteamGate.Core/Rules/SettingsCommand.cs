@@ -3,7 +3,23 @@ using SteamGate.Core.Pipe;
 namespace SteamGate.Core.Rules;
 
 /// <summary>
-/// What the pipe server hands the worker for one request or cancel. Exactly one of Request or CancelId is set. Replies is the
-/// connection's outbound queue, never the connection itself; the worker posts the answer there. The pid and session come from the pipe.
+/// One settings request or cancel from the pipe. Exactly one of Request or CancelId is set; the constructor throws ArgumentException otherwise.
 /// </summary>
-public sealed record SettingsCommand(string RequestId, ChangeRequest? Request, Guid? CancelId, OutboundQueue Replies, int ClientPid, int SessionId);
+public sealed record SettingsCommand : WorkerCommand
+{
+    public SettingsCommand(string requestId, ChangeRequest? request, Guid? cancelId, OutboundQueue replies, int clientPid, int sessionId)
+        : base(requestId, replies, clientPid, sessionId)
+    {
+        if ((request is null) == (cancelId is null))
+        {
+            throw new ArgumentException("Exactly one of request or cancelId must be set.");
+        }
+
+        Request = request;
+        CancelId = cancelId;
+    }
+
+    public ChangeRequest? Request { get; }
+
+    public Guid? CancelId { get; }
+}

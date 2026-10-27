@@ -184,6 +184,7 @@ internal sealed class StatusForm : Form
                 if (!connected)
                 {
                     _withoutConnectionSince = Environment.TickCount64;
+                    _page?.ConnectionLost();
                 }
 
                 CheckReachable();

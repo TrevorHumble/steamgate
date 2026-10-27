@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using SteamGate.Core;
 using SteamGate.Core.Accounting;
 using SteamGate.Core.Enforcement;
+using SteamGate.Core.Extend;
 using SteamGate.Core.Pipe;
 using SteamGate.Core.Rules;
 using SteamGate.Core.Status;
@@ -38,7 +39,7 @@ internal sealed class GateWorker : BackgroundService
     private readonly SnapshotHolder _snapshots;
     private readonly Stopwatch _sinceStart = Stopwatch.StartNew();
     private readonly SteamLibraries _steam = new();
-    private readonly ChannelReader<SettingsCommand> _commands;
+    private readonly ChannelReader<WorkerCommand> _commands;
     private readonly RateLimitedLog _requestLog;
     private long _tickCount;
 
@@ -61,7 +62,7 @@ internal sealed class GateWorker : BackgroundService
     // Enforcement: the planner's memory, started from this service's own start time.
     private PlannerState _planner = PlannerState.Initial(DateTime.UtcNow);
 
-    public GateWorker(SnapshotHolder snapshots, GateLog log, PipeServer pipe, Channel<SettingsCommand> commands, RateLimitedLog requestLog)
+    public GateWorker(SnapshotHolder snapshots, GateLog log, PipeServer pipe, Channel<WorkerCommand> commands, RateLimitedLog requestLog)
     {
         _snapshots = snapshots;
         _log = log;
@@ -160,7 +161,25 @@ internal sealed class GateWorker : BackgroundService
         // One clock reading per tick, so the local and UTC times agree.
         var now = DateTimeOffset.Now;
         var localNow = now.DateTime;
-        RunLock(now.UtcDateTime);
+        var settingsCommands = new List<SettingsCommand>();
+        var extendCommands = new List<ExtendCommand>();
+        while (_commands.TryRead(out var command))
+        {
+            if (command is SettingsCommand settingsCommand)
+            {
+                settingsCommands.Add(settingsCommand);
+            }
+            else if (command is ExtendCommand extendCommand)
+            {
+                extendCommands.Add(extendCommand);
+            }
+            else
+            {
+                throw new InvalidOperationException("unknown worker command");
+            }
+        }
+
+        RunLock(now.UtcDateTime, settingsCommands);
 
         var (libraries, installed, commonTargets, refreshed) = _steam.Refresh(
             SteamRootLocator.Locate,
@@ -188,6 +207,7 @@ internal sealed class GateWorker : BackgroundService
             _log.Write("game stopped " + folder);
         }
 
+        RunExtend(extendCommands, localNow);
         CountTime(games, localNow, now.UtcDateTime);
 
         var remaining = Budget.RemainingSeconds(_tally, _settings, localNow);
@@ -200,7 +220,7 @@ internal sealed class GateWorker : BackgroundService
         {
             Tally = _tally,
             RemainingSeconds = remaining,
-            TonightLimitMinutes = Budget.NightLimitMinutes(NightClock.NightOf(localNow), _settings),
+            TonightLimitMinutes = Budget.TonightLimitMinutes(_tally, _settings, localNow),
             Settings = _settings,
         };
         Enforce(snapshot);
@@ -239,7 +259,8 @@ internal sealed class GateWorker : BackgroundService
 
     // The lock, in this order: count the pending entries down, answer the requests that arrived, apply the entries that are due.
     // The one in-memory settings object is replaced here, so everything later in the tick reads the result.
-    private void RunLock(DateTime utcNow)
+    // The tick sorts the commands first: extend commands go to RunExtend and settings commands come here, in the order they arrived.
+    private void RunLock(DateTime utcNow, IReadOnlyList<SettingsCommand> commands)
     {
         var uptimeMs = Environment.TickCount64;
         var clock = _settings.Clock;
@@ -250,11 +271,11 @@ internal sealed class GateWorker : BackgroundService
 
         var settings = ChangeEngine.Countdown(_settings, step);
         var answered = new List<(SettingsCommand Command, ChangeOutcome Outcome)>();
-        while (_commands.TryRead(out var command))
+        foreach (var command in commands)
         {
             var outcome = command.Request is { } request
                 ? ChangeEngine.Request(settings, request, utcNow, Guid.NewGuid)
-                : ChangeEngine.Cancel(settings, command.CancelId ?? Guid.Empty);
+                : ChangeEngine.Cancel(settings, command.CancelId!.Value);
             settings = outcome.Updated;
             _settingsDirty |= outcome.Changed;
             var result = ChangeLog.ResultName(outcome.Result);
@@ -289,6 +310,27 @@ internal sealed class GateWorker : BackgroundService
         foreach (var (command, outcome) in answered)
         {
             command.Replies.TryPost(ChangeMessages.Reply(command.RequestId, outcome, saveFailed));
+        }
+    }
+
+    // Answers the extend commands in the order they arrived, from this tick's tally, before the tick is counted. Each one is judged again from
+    // the service's own tally and settings; an applied one replaces the tally and saves it at once. The reply goes out after the save attempt.
+    private void RunExtend(IReadOnlyList<ExtendCommand> commands, DateTime localNow)
+    {
+        foreach (var command in commands)
+        {
+            var outcome = ExtendRules.Apply(_tally, _settings, localNow, command.Minutes);
+            var saveFailed = false;
+            if (outcome.Applied)
+            {
+                _tally = outcome.Updated;
+                saveFailed = !SaveTally();
+                _log.Write(FormattableString.Invariant($"extension {command.Minutes} night={outcome.Updated.Night:yyyy-MM-dd}"));
+            }
+
+            _requestLog.Write(ChangeLog.Extend(
+                ChangeLog.ResultName(outcome.Applied ? ChangeResult.Applied : ChangeResult.Refused), command.ClientPid, command.SessionId));
+            command.Replies.TryPost(ChangeMessages.ExtendReply(command.RequestId, outcome, saveFailed));
         }
     }
 
@@ -365,7 +407,7 @@ internal sealed class GateWorker : BackgroundService
     private void CountTime(IReadOnlyList<RunningGame> games, DateTime localNow, DateTime utcNow)
     {
         var (step, maxStep) = _stepTimer.Next(_tally, utcNow, games.Count > 0);
-        var next = Accountant.Tick(_tally, localNow, utcNow, step, maxStep, games);
+        var next = Accountant.Tick(_tally, localNow, utcNow, step, maxStep, games, _settings);
         var changed = next != _tally;
         _tally = next;
 
@@ -376,11 +418,14 @@ internal sealed class GateWorker : BackgroundService
         }
     }
 
-    private void SaveTally()
+    private bool SaveTally()
     {
         if (!_tallyStore.Save(_tally))
         {
             _log.Write("save failed tally.json");
+            return false;
         }
+
+        return true;
     }
 }

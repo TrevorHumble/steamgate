@@ -268,8 +268,19 @@ function Get-TallyLoadedSeconds {
     return $null
 }
 
+# The night would reset in the middle of a test that counts time, so wait until just after 04:00 when it is less than 15 minutes away.
+function Wait-PastNightChange {
+    $now = Get-Date
+    $boundary = $now.Date.AddHours(4)
+    if ($boundary -le $now) { $boundary = $boundary.AddDays(1) }
+    if (($boundary - $now).TotalMinutes -lt 15) {
+        Start-Sleep -Seconds ([int][Math]::Ceiling(($boundary.AddMinutes(1) - $now).TotalSeconds))
+    }
+}
+
 function Start-FakeGame {
-    return (Start-Process -FilePath $FakeGameExe -ArgumentList '-n', '300', '127.0.0.1' -WindowStyle Hidden -PassThru)
+    param([int]$Count = 300)
+    return (Start-Process -FilePath $FakeGameExe -ArgumentList '-n', $Count, '127.0.0.1' -WindowStyle Hidden -PassThru)
 }
 
 # 1. Fresh install.
@@ -400,14 +411,7 @@ try {
 
 # 10. Time accounting: a running game is counted, and the count survives the service being ended.
 try {
-    # The night would reset in the middle of the test, so wait until just after 04:00.
-    $now = Get-Date
-    $boundary = $now.Date.AddHours(4)
-    if ($boundary -le $now) { $boundary = $boundary.AddDays(1) }
-    if (($boundary - $now).TotalMinutes -lt 15) {
-        Start-Sleep -Seconds ([int][Math]::Ceiling(($boundary.AddMinutes(1) - $now).TotalSeconds))
-    }
-
+    Wait-PastNightChange
     Reset-SteamGate @{}
     $servicePid = New-FakeSteamRoot
     Wait-SteamReady -ServicePid $servicePid | Out-Null
@@ -683,6 +687,18 @@ function Send-PipeRequest {
     return $reply
 }
 
+# Reads the first state line the service sends a "status" client through PipeProbe.ps1 and returns it parsed.
+function Get-ProbeState {
+    $stateOut = Join-Path $FakeRootBase 'state-probe.txt'
+    $stateLineFile = Join-Path $FakeRootBase 'state-line.txt'
+    Remove-Item -LiteralPath $stateOut, $stateLineFile -Force -ErrorAction SilentlyContinue
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ProbeScript`"", '-OutFile', "`"$stateOut`"", '-WaitSeconds', '10', '-HoldSeconds', '0', '-StateFile', "`"$stateLineFile`"")
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -WorkingDirectory $env:SystemRoot | Out-Null
+    $stateText = Wait-ProbeResult -OutFile $stateLineFile -Seconds 15 -What 'the state probe'
+    if ($stateText -like 'FAILED*') { Fail "the state probe wrote ""$stateText""" }
+    return ($stateText | ConvertFrom-Json)
+}
+
 # Reads settings.json until $Check returns true for it, or fails after $Seconds. The service replaces the file atomically,
 # so a read can collide with a save; such a read is just tried again.
 function Wait-Settings {
@@ -804,18 +820,11 @@ try {
 # 18. The status screen's state: a client that speaks the screen's pipe protocol (PipeProbe.ps1, hello as "status") gets a state line from the service.
 try {
     Reset-SteamGate @{}
-    $stateOut = Join-Path $FakeRootBase 'state-probe.txt'
-    $stateLineFile = Join-Path $FakeRootBase 'state-line.txt'
-    Remove-Item -LiteralPath $stateOut, $stateLineFile -Force -ErrorAction SilentlyContinue
     # The night is the local date minus 4 hours; the limit depends on whether it is a weekend night. Both ends of the wait are checked, so a boundary in between cannot fail the test.
     $weekendNights = @('Friday', 'Saturday', 'Sunday')
     $limitBefore = if ($weekendNights -contains [string](Get-Date).AddHours(-4).DayOfWeek) { 180 } else { 90 }
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$ProbeScript`"", '-OutFile', "`"$stateOut`"", '-WaitSeconds', '10', '-HoldSeconds', '0', '-StateFile', "`"$stateLineFile`"")
-    Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -WorkingDirectory $env:SystemRoot | Out-Null
-    $stateText = Wait-ProbeResult -OutFile $stateLineFile -Seconds 15 -What 'the state probe'
-    if ($stateText -like 'FAILED*') { Fail "the state probe wrote ""$stateText""" }
+    $state = Get-ProbeState
     $limitAfter = if ($weekendNights -contains [string](Get-Date).AddHours(-4).DayOfWeek) { 180 } else { 90 }
-    $state = $stateText | ConvertFrom-Json
     if ($state.type -ne 'state') { Fail "the first line the probe kept had type ""$($state.type)"", expected state" }
     if ($state.settings.weeknightMinutes -ne 90) { Fail "the state has weeknightMinutes $($state.settings.weeknightMinutes), expected 90" }
     if ($state.settings.cooldownHours -ne 48) { Fail "the state has cooldownHours $($state.settings.cooldownHours), expected 48" }
@@ -906,4 +915,117 @@ try {
     Write-Host 'SHORTCUT REMOVED'
 } finally {
     if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { Invoke-TestUninstall }
+}
+
+# Helpers for the Extend checks.
+
+# Reads tally.json, or returns $null when it cannot be read or parsed yet (the service may be replacing it).
+function Get-TallyJson {
+    try {
+        return (Get-Content -Raw -LiteralPath $TallyPath | ConvertFrom-Json)
+    } catch {
+        return $null
+    }
+}
+
+# The night as the service names it: the local date minus 4 hours.
+function Get-NightName {
+    return (Get-Date).AddHours(-4).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Sends one extend line and returns the reply; fails unless the reply has this ok flag and message.
+function Assert-ExtendReply {
+    param([string]$Id, [int]$Minutes, [bool]$Ok, [string]$Message)
+    $reply = Send-PipeRequest -RequestId $Id -Json ('{"type":"extend","requestId":"' + $Id + '","minutes":' + $Minutes + '}')
+    if (($reply.ok -ne $Ok) -or ($reply.message -ne $Message)) { Fail "the reply to extend $Minutes ($Id) was ok=$($reply.ok) ""$($reply.message)"", expected ok=$Ok ""$Message""" }
+}
+
+$WindowNote = "Extend is available in the last 30 minutes before tonight's limit."
+$UsedNote = 'Extension used tonight: 20 min.'
+
+# 21. The Extend message: a wrong length is refused, the one extension is applied at once, a second is refused, it is saved, and it survives a restart.
+try {
+    Wait-PastNightChange
+    Reset-SteamGate @{ weeknightMinutes = 20; weekendNightMinutes = 20 }
+    $settingsStamp = (Get-Item -LiteralPath $SettingsPath).LastWriteTimeUtc
+    $nightBefore = Get-NightName
+    Assert-ExtendReply -Id 'x0' -Minutes 25 -Ok $false -Message 'Not allowed.'
+    Assert-ExtendReply -Id 'x1' -Minutes 20 -Ok $true -Message 'Applied now. Tonight ends 20 min later (limit 40 min).'
+    Assert-ExtendReply -Id 'x2' -Minutes 10 -Ok $false -Message $UsedNote
+    $deadline = (Get-Date).AddSeconds(70)
+    while ($true) {
+        $tally = Get-TallyJson
+        if (($null -ne $tally) -and ($null -ne $tally.extension) -and ($tally.extension.minutes -eq 20)) { break }
+        if ((Get-Date) -gt $deadline) { Fail 'tally.json did not hold an extension of 20 minutes within 70 seconds' }
+        Start-Sleep -Seconds 1
+    }
+    $nightAfter = Get-NightName
+    if (($tally.extension.night -ne $nightBefore) -and ($tally.extension.night -ne $nightAfter)) { Fail "tally.json has extension night $($tally.extension.night), expected $nightBefore" }
+
+    Restart-ServiceProcess -What 'the restart after the extension was saved' | Out-Null
+    $state = Get-ProbeState
+    if ($state.extensionMinutes -ne 20) { Fail "the state after the restart has extensionMinutes $($state.extensionMinutes), expected 20" }
+    if ($state.tonightLimitMinutes -ne 40) { Fail "the state after the restart has tonightLimitMinutes $($state.tonightLimitMinutes), expected 40" }
+    Assert-ExtendReply -Id 'x3' -Minutes 30 -Ok $false -Message $UsedNote
+    if ((Get-Item -LiteralPath $SettingsPath).LastWriteTimeUtc -ne $settingsStamp) { Fail 'settings.json was written by the extension' }
+    Write-Host 'EXTEND OK'
+} finally {
+    Invoke-TestUninstall
+}
+
+# 22. Outside the last 30 minutes before the limit the extension is refused and nothing is saved.
+try {
+    Reset-SteamGate @{ weeknightMinutes = 60; weekendNightMinutes = 60 }
+    Assert-ExtendReply -Id 'w1' -Minutes 10 -Ok $false -Message $WindowNote
+    Start-Sleep -Seconds 10
+    $tally = Get-TallyJson
+    $readDeadline = (Get-Date).AddSeconds(10)
+    while (($null -eq $tally) -and ((Get-Date) -lt $readDeadline)) {
+        Start-Sleep -Milliseconds 500
+        $tally = Get-TallyJson
+    }
+    if ($null -eq $tally) { Fail 'tally.json could not be read within 10 seconds after a refused extend' }
+    if ($null -ne $tally.extension) { Fail 'tally.json holds an extension after a refused extend' }
+    Write-Host 'EXTEND WINDOW OK'
+} finally {
+    Invoke-TestUninstall
+}
+
+# 23. The weekly cap stays hard: a length that would not fit in what is left of the week is refused.
+try {
+    Reset-SteamGate @{ weeknightMinutes = 20; weekendNightMinutes = 20; weeklyCapMinutes = 50 }
+    Assert-ExtendReply -Id 'k1' -Minutes 20 -Ok $false -Message 'Not enough time left this week.'
+    Assert-ExtendReply -Id 'k2' -Minutes 10 -Ok $true -Message 'Applied now. Tonight ends 10 min later (limit 30 min).'
+    Write-Host 'EXTEND WEEK OK'
+} finally {
+    Invoke-TestUninstall
+}
+
+# 24. Time past the old limit counts double toward the week: with a 2 minute limit and an extension of 10, a game is not closed at 2 minutes,
+# and the week holds the night's seconds plus the seconds played past the old limit.
+try {
+    Wait-PastNightChange
+    Reset-SteamGate @{ weeknightMinutes = 2; weekendNightMinutes = 2 }
+    $servicePid = New-FakeSteamRoot
+    $mark = Wait-SteamReady -ServicePid $servicePid
+    Assert-ExtendReply -Id 'd1' -Minutes 10 -Ok $true -Message 'Applied now. Tonight ends 10 min later (limit 12 min).'
+    Start-FakeGame -Count 600 | Out-Null
+
+    $tally = $null
+    $deadline = (Get-Date).AddSeconds(400)
+    while ($true) {
+        $tally = Get-TallyJson
+        if (($null -ne $tally) -and ($tally.nightSeconds -ge 150)) { break }
+        if ((Get-Date) -gt $deadline) { Fail 'tally.json did not reach 150 night seconds within 400 seconds' }
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Get-Process -Name 'FakeGame' -ErrorAction SilentlyContinue)) { Fail 'the fake game was closed at the old limit despite the extension' }
+    if (Wait-LogLine -Pattern 'polite close FakeGame\s*$' -After $mark -Seconds 1) { Fail 'service.log has a "polite close FakeGame" line after the extension was applied' }
+    $night = [double]$tally.nightSeconds
+    $expectedGap = $night - 120
+    if ([Math]::Abs(([double]$tally.weekSeconds - $night) - $expectedGap) -gt 0.5) { Fail "weekSeconds $($tally.weekSeconds) minus nightSeconds $night should be $expectedGap" }
+    Write-Host 'EXTEND DOUBLE OK'
+} finally {
+    Remove-FakeSteamRoot
+    Invoke-TestUninstall
 }

@@ -22,9 +22,10 @@ Short form of DESIGN.md "## SteamGate product spec".
 - Counts wall-clock minutes while at least one Steam game is open; two games at once do not double-count.
 - Defaults: weeknight 90 min; weekend night 3 h; weekend nights are Friday, Saturday, and Sunday; weekly cap 10 h; cooldown 48 h. A night ends at 4 AM. The weekly cap resets Monday 4 AM. The tally is saved to disk every minute.
 - Warnings at 30, 20, 10, 5, and 1 minutes left; at the limit a polite close, then a force close; any game started after the limit is closed.
-- Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a program to the not-counted list, disable, uninstall) waits the full cooldown. Any change that tightens a rule applies right away. The cooldown has a hard maximum of 7 days.
+- Any change that loosens a rule (raise a limit, add a weekend night, shorten the cooldown, add a program to the not-counted list, disable, uninstall) waits the full cooldown, with one exception: the status screen's Extend button (next bullet). Any change that tightens a rule applies right away. The cooldown has a hard maximum of 7 days.
+- Extend (approved 2026-10-26): in the last 30 minutes before tonight's limit, once per night, the status screen can add 10, 20, or 30 minutes to tonight's limit at once, with no cooldown. Only minutes played past tonight's original limit count double toward the weekly cap; unused extension time costs nothing. The weekly cap stays hard: a length that would not fit is greyed out with the reason.
 - Not-counted list, pre-filled with Blender, OBS Studio, Wallpaper Engine, and Steamworks Shared, editable from the status screen; adding waits the cooldown, removing applies now.
-- Status screen: see where you stand, request changes, edit the not-counted list. It is visual, so Trevor approves its look on a preview before it is built.
+- Status screen: see where you stand, request changes, edit the not-counted list, extend tonight. It is visual, so Trevor approves its look on a preview before it is built.
 
 On conflict, correct this section to match DESIGN.md (DESIGN.md "Where the documentation lives").
 

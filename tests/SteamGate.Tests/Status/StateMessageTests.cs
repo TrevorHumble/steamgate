@@ -73,12 +73,13 @@ public sealed class StateMessageTests
         const string line = """{"type":"state","remainingSeconds":null,"tonightLimitMinutes":null,"tonightWeekend":false,"nightSeconds":0,"weekSeconds":0,"counting":null,"helperConnected":false,"settings":{"weeknightMinutes":90,"weekendNightMinutes":180,"weeklyCapMinutes":600,"cooldownHours":48,"enabled":true,"allowUninstall":false,"weekendNights":["Friday"],"notCounted":[],"pending":[]},"addable":[]}""";
 
         var state = Assert.IsType<StateMessage>(PipeMessage.Parse(line));
+        Assert.Equal(0, state.ExtensionMinutes);
 
         Assert.Null(state.RemainingSeconds);
         Assert.Null(state.TonightLimitMinutes);
         Assert.Null(state.Counting);
         Assert.Equal([DayOfWeek.Friday], state.Settings.WeekendNights);
-        Assert.Equal(line, state.Serialize());
+        Assert.Equal(line.Replace("\"tonightWeekend\":false,", "\"tonightWeekend\":false,\"extensionMinutes\":0,", StringComparison.Ordinal), state.Serialize());
     }
 
     [Fact]
@@ -233,14 +234,15 @@ public sealed class StateMessageTests
         };
         var snapshot = new GateSnapshot([], apps)
         {
-            Tally = Tally.Empty,
+            Tally = Tally.Empty with { Extension = new NightExtension(new DateOnly(2026, 10, 20), 20) },
             RemainingSeconds = 100,
-            TonightLimitMinutes = 90,
+            TonightLimitMinutes = 110,
             Settings = settings,
         };
 
         var state = StatusState.From(snapshot, new DateTime(2026, 10, 20, 21, 14, 0))!;
 
+        Assert.Equal(20, state.ExtensionMinutes);
         Assert.True(Encoding.UTF8.GetByteCount(state.Serialize()) <= StateMessage.MaxLineBytes);
         Assert.True(state.ToLine().Length <= StateMessage.MaxLineBytes + 1);
         Assert.Equal(524288, StateMessage.MaxLineBytes);
@@ -261,4 +263,43 @@ public sealed class StateMessageTests
     private static string Wide(int number) => new string((char)0x65E5, 256) + number.ToString("D4", System.Globalization.CultureInfo.InvariantCulture);
 
     private static bool Contains(byte[] haystack, byte[] needle) => haystack.AsSpan().IndexOf(needle) >= 0;
+
+    [Fact]
+    public void ExtensionMinutesRoundTrips()
+    {
+        var state = StateFixtures.State(extensionMinutes: 20);
+
+        var line = state.Serialize();
+        var parsed = Assert.IsType<StateMessage>(PipeMessage.Parse(line));
+
+        Assert.Contains("\"tonightWeekend\":false,\"extensionMinutes\":20,", line, StringComparison.Ordinal);
+        Assert.Equal(20, parsed.ExtensionMinutes);
+        Assert.Equal(state, parsed);
+        Assert.Contains("\"extensionMinutes\":0,", StateFixtures.State().Serialize(), StringComparison.Ordinal);
+        Assert.NotEqual(StateFixtures.State(extensionMinutes: 10), StateFixtures.State(extensionMinutes: 20));
+        Assert.NotEqual(StateFixtures.State(), StateFixtures.State(extensionMinutes: 30));
+
+        var withNull = line.Replace("\"extensionMinutes\":20", "\"extensionMinutes\":null", StringComparison.Ordinal);
+        Assert.Equal(0, Assert.IsType<StateMessage>(PipeMessage.Parse(withNull)).ExtensionMinutes);
+        foreach (var length in NightExtension.Lengths)
+        {
+            var text = line.Replace("\"extensionMinutes\":20", "\"extensionMinutes\":" + length, StringComparison.Ordinal);
+            Assert.Equal(length, Assert.IsType<StateMessage>(PipeMessage.Parse(text)).ExtensionMinutes);
+        }
+    }
+
+    [Theory]
+    [InlineData("25")]
+    [InlineData("-1")]
+    [InlineData("\"20\"")]
+    [InlineData("20.5")]
+    [InlineData("20.0")]
+    [InlineData("true")]
+    [InlineData("[20]")]
+    public void BadExtensionMinutesIsNull(string value)
+    {
+        var line = StateFixtures.State(extensionMinutes: 20).Serialize().Replace("\"extensionMinutes\":20", "\"extensionMinutes\":" + value, StringComparison.Ordinal);
+
+        Assert.Null(PipeMessage.Parse(line));
+    }
 }

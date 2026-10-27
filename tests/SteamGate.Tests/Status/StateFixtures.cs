@@ -18,7 +18,8 @@ internal static class StateFixtures
         int? tonightLimit = 90,
         bool weekend = false,
         string? counting = "Cyberpunk 2077",
-        double remainingSeconds = 2580) =>
+        double remainingSeconds = 2580,
+        int extensionMinutes = 0) =>
         new(
             RemainingSeconds: remainingSeconds,
             TonightLimitMinutes: tonightLimit,
@@ -28,7 +29,8 @@ internal static class StateFixtures
             Counting: counting,
             HelperConnected: true,
             Settings: StatusState.SettingsOf(settings ?? GateSettings.Defaults, []),
-            Addable: addable ?? []);
+            Addable: addable ?? [],
+            ExtensionMinutes: extensionMinutes);
 
     public static NamedFolder Named(string name) => new(name, name);
 

@@ -11,10 +11,10 @@ public sealed record GateSnapshot(IReadOnlyList<RunningGame> Games, IReadOnlyLis
     /// <summary>The seconds counted tonight and this week, as of the last tick.</summary>
     public Tally Tally { get; init; } = Tally.Empty;
 
-    /// <summary>Seconds left tonight or this week, whichever is less. Null until the first tick has computed it.</summary>
+    /// <summary>Seconds left tonight or this week, whichever is less, counting tonight's extension and the double cost past the original limit. Null until the first tick has computed it.</summary>
     public double? RemainingSeconds { get; init; }
 
-    /// <summary>Tonight's limit in minutes. Null until the first tick has computed it.</summary>
+    /// <summary>Tonight's limit in minutes, including tonight's extension. Null until the first tick has computed it.</summary>
     public int? TonightLimitMinutes { get; init; }
 
     /// <summary>True when a verified helper (the overlay program in the user's session) is connected to the pipe.</summary>

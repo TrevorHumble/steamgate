@@ -31,7 +31,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private readonly List<Connection> _clients = [];
     private readonly SemaphoreSlim _released = new(0);
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly ChannelWriter<SettingsCommand> _commands;
+    private readonly ChannelWriter<WorkerCommand> _commands;
     private readonly RateLimitedLog _helloLog;
     private readonly RateLimitedLog _requestLog;
 
@@ -44,7 +44,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
     private string _lastUnavailable = string.Empty;
     private TimeSpan _lastUnavailableAt = TimeSpan.MinValue;
 
-    public PipeServer(GateLog log, Channel<SettingsCommand> commands, RateLimitedLog requestLog)
+    public PipeServer(GateLog log, Channel<WorkerCommand> commands, RateLimitedLog requestLog)
     {
         _log = log;
         _commands = commands.Writer;
@@ -435,8 +435,8 @@ internal sealed class PipeServer : IHostedService, IDisposable
         }
     }
 
-    // After the hello a line that is too long, malformed, unknown, or not allowed (ConnectionRules) ends the connection. A request or
-    // cancel goes to the worker. A connection that is not a verified helper is dropped when no complete line arrives for the idle limit.
+    // After the hello a line that is too long, malformed, unknown, or not allowed (ConnectionRules) ends the connection. A request, cancel, or extend
+    // goes to the worker. A connection that is not a verified helper is dropped when no complete line arrives for the idle limit.
     private async Task ReadLoopAsync(NamedPipeServerStream pipe, Connection connection)
     {
         while (!connection.Token.IsCancellationRequested)
@@ -470,7 +470,7 @@ internal sealed class PipeServer : IHostedService, IDisposable
         }
     }
 
-    // Hands a request or cancel to the worker through the channel. A full channel is answered at once; the server never waits for the worker.
+    // Hands a request, cancel, or extend to the worker through the channel. A full channel is answered at once; the server never waits for the worker.
     private void Submit(Connection connection, PipeMessage message)
     {
         var pid = (int)connection.Pid;
@@ -493,6 +493,14 @@ internal sealed class PipeServer : IHostedService, IDisposable
                 {
                     _requestLog.Write(ChangeLog.Cancel(ChangeLog.Busy, pid, connection.SessionId));
                     connection.Queue.TryPost(ChangeMessages.Failure(cancel.RequestId, ChangeReply.Busy));
+                }
+
+                break;
+            case ExtendMessage extend:
+                if (!_commands.TryWrite(new ExtendCommand(extend.RequestId, extend.Minutes, connection.Queue, pid, connection.SessionId)))
+                {
+                    _requestLog.Write(ChangeLog.Extend(ChangeLog.Busy, pid, connection.SessionId));
+                    connection.Queue.TryPost(ChangeMessages.Failure(extend.RequestId, ChangeReply.Busy));
                 }
 
                 break;

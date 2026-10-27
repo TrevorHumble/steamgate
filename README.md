@@ -1,6 +1,6 @@
 # SteamGate
 
-SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. The service runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games work: an invisible helper shows a silent overlay at 30, 20, 10, 5, and 1 minutes left, then the game is closed at the limit. SteamGate opens from the Start Menu to show the time left and to request changes. See [DESIGN.md](DESIGN.md) for the spec.
+SteamGate is a Windows service, written in C# / .NET, that holds Trevor's Steam gaming to time limits he sets. The service runs with no window, tray icon, or Alt-Tab entry, keeps its settings in an admin-only ProgramData folder, and Windows restarts it if it is killed. Warnings and closing games work: an invisible helper shows a silent overlay at 30, 20, 10, 5, and 1 minutes left, then the game is closed at the limit. SteamGate opens from the Start Menu to show the time left, to request changes, and to extend tonight by 10, 20, or 30 minutes in the last 30 minutes before the limit. See [DESIGN.md](DESIGN.md) for the spec.
 
 ## Install
 

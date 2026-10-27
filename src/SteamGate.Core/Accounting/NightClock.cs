@@ -16,7 +16,7 @@ public static class NightClock
         return night.AddDays(-daysSinceMonday);
     }
 
-    /// <summary>The tally with the night, and the week, set to the ones the local time names. A part from another night or week counts as 0 used.</summary>
+    /// <summary>The tally with the night, and the week, set to the ones the local time names. A part from another night or week counts as 0 used, and another night's extension is dropped.</summary>
     public static Tally RollOver(Tally tally, DateTime localNow)
     {
         var night = NightOf(localNow);
@@ -27,6 +27,7 @@ public static class NightClock
             NightSeconds = tally.Night == night ? tally.NightSeconds : 0,
             Week = week,
             WeekSeconds = tally.Week == week ? tally.WeekSeconds : 0,
+            Extension = tally.Extension is { } extension && extension.Night == night ? extension : null,
         };
     }
 }

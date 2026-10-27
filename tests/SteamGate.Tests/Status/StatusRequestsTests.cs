@@ -55,4 +55,13 @@ public sealed class StatusRequestsTests
     private static T Parse<T>(PipeMessage message)
         where T : PipeMessage =>
         Assert.IsType<T>(PipeMessage.Parse(message.Serialize()));
+
+    [Fact]
+    public void ExtendLine()
+    {
+        var message = StatusRequests.Extend("s7", 20);
+
+        Assert.Equal(new ExtendMessage("s7", 20), message);
+        Assert.Equal("""{"type":"extend","requestId":"s7","minutes":20}""", message.Serialize());
+    }
 }

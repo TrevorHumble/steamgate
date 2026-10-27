@@ -413,4 +413,50 @@ public sealed class PlannerTests
         Assert.Equal([1800, 1200, 600, 300, 60], EnforcementPlanner.WarnThresholdSeconds);
         Assert.Equal(TimeSpan.FromSeconds(60), EnforcementPlanner.PoliteGrace);
     }
+
+    [Fact]
+    public void ExtensionRearmsTheWarnings()
+    {
+        var games = new[] { Game("Viewfinder") };
+
+        // An extension of 10 minutes between the second and third reading: 1190 s left, then 1785.
+        var state = Fresh();
+        var seen = new List<IReadOnlyList<EnforcementAction>>();
+        foreach (var remaining in new double[] { 1790, 1190, 1785, 1190 })
+        {
+            IReadOnlyList<EnforcementAction> actions;
+            (state, actions) = Run(state, remaining, games, T);
+            seen.Add(actions);
+        }
+
+        Assert.Equal([new Warn(30)], seen[0]);
+        Assert.Equal([new Warn(20)], seen[1]);
+        Assert.Empty(seen[2]);
+        Assert.Equal([new Warn(20)], seen[3]);
+
+        // An extension of 20 minutes: 1190 s left, then 2300, then back through 1790 and 1190.
+        state = Fresh();
+        seen.Clear();
+        foreach (var remaining in new double[] { 1190, 2300, 1790, 1190 })
+        {
+            IReadOnlyList<EnforcementAction> actions;
+            (state, actions) = Run(state, remaining, games, T);
+            seen.Add(actions);
+        }
+
+        Assert.Equal([new Warn(20)], seen[0]);
+        Assert.Empty(seen[1]);
+        Assert.Equal([new Warn(30)], seen[2]);
+        Assert.Equal([new Warn(20)], seen[3]);
+
+        // A polite close in progress is forgotten once time is left: the next limit starts a fresh polite close, not a force close.
+        var overwatch = Game("Overwatch", null, 30);
+        var (closing, atLimit) = Run(Fresh(), 0, [overwatch], T);
+        var (extended, atThirty) = Run(closing, 600, [overwatch], T + TimeSpan.FromSeconds(30));
+        var (_, atAgain) = Run(extended, 0, [overwatch], T + TimeSpan.FromSeconds(120));
+
+        Assert.Equal([new PoliteClose(overwatch)], atLimit);
+        Assert.DoesNotContain(atThirty, action => action is ForceClose);
+        Assert.Equal([new PoliteClose(overwatch)], atAgain);
+    }
 }

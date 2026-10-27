@@ -36,7 +36,8 @@ public static class StatusState
             snapshot.Games.Count > 0 ? CutName(snapshot.Games[0].DisplayName) : null,
             snapshot.HelperConnected,
             SettingsOf(settings, snapshot.Installed),
-            []);
+            [],
+            tally.ExtensionMinutes);
 
         var onList = new HashSet<string>(settings.NotCounted, StringComparer.OrdinalIgnoreCase);
         var addable = snapshot.Installed

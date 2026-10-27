@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using SteamGate.Core.Accounting;
 using SteamGate.Core.Rules;
 
 namespace SteamGate.Core.Pipe;
@@ -31,6 +32,7 @@ public abstract record PipeMessage
                 CloseMessage.TypeName => ParseClose(root),
                 RequestMessage.TypeName => ParseRequest(root),
                 CancelMessage.TypeName => ParseCancel(root),
+                ExtendMessage.TypeName => ParseExtend(root),
                 ReplyMessage.TypeName => ParseReply(root),
                 StateMessage.TypeName => ParseState(root),
                 _ => null,
@@ -154,6 +156,12 @@ public abstract record PipeMessage
             ? new CancelMessage(requestId, guid)
             : null;
 
+    // The minutes must be a JSON number written as an integer that fits an int; whether it is an allowed length is the service's call.
+    private static ExtendMessage? ParseExtend(JsonElement root) =>
+        TryString(root, "requestId", out var requestId) && TryInt(root, "minutes", out var minutes)
+            ? new ExtendMessage(requestId, minutes)
+            : null;
+
     private static ReplyMessage? ParseReply(JsonElement root)
     {
         if (!TryString(root, "requestId", out var requestId)
@@ -195,13 +203,22 @@ public abstract record PipeMessage
             return null;
         }
 
+        // The extension is absent, null, 0, or one of the allowed lengths, or the line is not a state.
+        var extensionMinutes = 0;
+        if (IsPresent(root, "extensionMinutes", out var extensionElement)
+            && (extensionElement.ValueKind != JsonValueKind.Number || !extensionElement.TryGetInt32(out extensionMinutes)
+                || (extensionMinutes != 0 && !NightExtension.Lengths.Contains(extensionMinutes))))
+        {
+            return null;
+        }
+
         // The limit is a whole number of minutes, or the line is not a state.
         if (limit is { } minutes && (minutes != Math.Floor(minutes) || Math.Abs(minutes) > int.MaxValue))
         {
             return null;
         }
 
-        return new StateMessage(remaining, limit is { } whole ? (int)whole : null, weekend, night, week, counting, helper, settings, addable);
+        return new StateMessage(remaining, limit is { } whole ? (int)whole : null, weekend, night, week, counting, helper, settings, addable, extensionMinutes);
     }
 
     private static StateSettings? ParseStateSettings(JsonElement root)
@@ -508,7 +525,20 @@ public sealed record CancelMessage(string RequestId, Guid Id) : PipeMessage
     });
 }
 
-/// <summary>Server to client: the answer to the request or cancel with this requestId. Pending is the id of the entry the request created, when it did.</summary>
+/// <summary>Client to server: take the once-a-night extension, for this many minutes. The service decides whether the length is allowed.</summary>
+public sealed record ExtendMessage(string RequestId, int Minutes) : PipeMessage
+{
+    public const string TypeName = "extend";
+
+    public override string Serialize() => Write(writer =>
+    {
+        writer.WriteString("type", TypeName);
+        writer.WriteString("requestId", RequestId);
+        writer.WriteNumber("minutes", Minutes);
+    });
+}
+
+/// <summary>Server to client: the answer to the request, cancel, or extend with this requestId. Pending is the id of the entry the request created, when it did.</summary>
 public sealed record ReplyMessage(string RequestId, bool Ok, string Message, Guid? Pending) : PipeMessage
 {
     public const string TypeName = "reply";
@@ -568,7 +598,8 @@ public sealed record StateMessage(
     string? Counting,
     bool HelperConnected,
     StateSettings Settings,
-    IReadOnlyList<NamedFolder> Addable) : PipeMessage
+    IReadOnlyList<NamedFolder> Addable,
+    int ExtensionMinutes = 0) : PipeMessage
 {
     public const string TypeName = "state";
 
@@ -582,9 +613,9 @@ public sealed record StateMessage(
         other is not null
         && RemainingSeconds == other.RemainingSeconds && TonightLimitMinutes == other.TonightLimitMinutes && TonightWeekend == other.TonightWeekend
         && NightSeconds == other.NightSeconds && WeekSeconds == other.WeekSeconds && Counting == other.Counting && HelperConnected == other.HelperConnected
-        && Settings.Equals(other.Settings) && Addable.SequenceEqual(other.Addable);
+        && ExtensionMinutes == other.ExtensionMinutes && Settings.Equals(other.Settings) && Addable.SequenceEqual(other.Addable);
 
-    public override int GetHashCode() => HashCode.Combine(RemainingSeconds, TonightLimitMinutes, NightSeconds, WeekSeconds, Counting, Settings, Addable.Count);
+    public override int GetHashCode() => HashCode.Combine(RemainingSeconds, TonightLimitMinutes, NightSeconds, WeekSeconds, Counting, Settings, Addable.Count, ExtensionMinutes);
 
     public override string Serialize() => Write(writer =>
     {
@@ -592,6 +623,7 @@ public sealed record StateMessage(
         WriteNumberOrNull(writer, "remainingSeconds", RemainingSeconds);
         WriteNumberOrNull(writer, "tonightLimitMinutes", TonightLimitMinutes);
         writer.WriteBoolean("tonightWeekend", TonightWeekend);
+        writer.WriteNumber("extensionMinutes", ExtensionMinutes);
         writer.WriteNumber("nightSeconds", NightSeconds);
         writer.WriteNumber("weekSeconds", WeekSeconds);
         if (Counting is null)

@@ -1,0 +1,159 @@
+<title>SteamGate Extend Button</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Same tokens and parts as docs/preview-2026-10-21.html. Each card shows one state the first preview did not show. */
+:root {
+  --bg: #e9edf1;
+  --win: #fbfcfd;
+  --line: #d8dee5;
+  --fg: #1b232c;
+  --muted: #5d6b79;
+  --accent: #2c6a8a;
+  --accent-soft: #e2eef4;
+  --wait: #9a5b00;
+  --wait-soft: #fbf0dd;
+  --now: #2d7a3e;
+  --now-soft: #e3f2e6;
+  --bar: #d3dbe3;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #11161b; --win: #1a2027; --line: #2c353f; --fg: #e6ebf0; --muted: #98a6b4;
+  --accent: #6db3d6; --accent-soft: #1f3340; --wait: #f0b357; --wait-soft: #3a2c16;
+  --now: #74c88a; --now-soft: #1b3323; --bar: #2c353f; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 14px; margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px; }
+.page { max-width: 760px; margin: 0 auto; display: grid; gap: 20px; }
+.page > h1 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; }
+.window { background: var(--win); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.cardhead { padding: 10px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.cardhead b { font-size: 14px; }
+.rule { font-size: 12px; color: var(--muted); }
+.content { padding: 20px 24px 24px; display: grid; gap: 24px; }
+h1 { font-family: var(--display); font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.counting { font-size: 13px; color: var(--muted); }
+.counting b { color: var(--fg); font-weight: 600; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--now); margin-right: 6px; }
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.meter { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 8px; min-width: 0; }
+.meter .label { font-size: 13px; color: var(--muted); }
+.meter .big { font-family: var(--display); font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.meter .big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.track { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); }
+.meter .sub { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rows { border: 1px solid var(--line); border-radius: 6px; }
+.row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); min-width: 0; }
+.row:first-child { border-top: 0; }
+.row .name { min-width: 0; }
+.row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.note { font-size: 12px; color: var(--muted); }
+button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--win); color: var(--fg); }
+button[disabled] { opacity: .5; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--win); }
+.editor { grid-column: 1 / -1; display: grid; gap: 8px; padding: 10px 12px; background: var(--accent-soft); border-radius: 4px; }
+.editor .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input, select { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--win); color: var(--fg); }
+input[type=number] { width: 80px; }
+.verdict { font-size: 13px; padding: 6px 10px; border-radius: 4px; }
+.verdict.wait { background: var(--wait-soft); color: var(--wait); }
+.verdict.now { background: var(--now-soft); color: var(--now); }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--wait-soft); color: var(--wait); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.days label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.danger { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.empty { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.stack { display: grid; gap: 8px; }
+.sample { text-align: center; font-size: 12px; color: var(--muted); margin-top: 12px; }
+@media (max-width: 560px) { .meters { grid-template-columns: 1fr; } .content { padding: 16px; } }
+</style>
+<div class="page">
+  <h1>Status screen: the Extend button</h1>
+  <p class="note">Sample data. Nothing on this page is live or clickable.</p>
+
+  <div class="window">
+    <div class="cardhead"><b>1. Extend, in the last 30 minutes before the limit</b>
+      <span class="rule">Rule: you pick 10, 20, or 30 minutes; the line says what it costs; Extend applies at once. Once per night. The weekly cap stays hard: a length that would not fit in what is left this week is greyed out.</span></div>
+    <div class="content">
+      <div class="meters">
+        <div class="meter">
+          <div class="label">Tonight (weeknight, ends 4 AM)</div>
+          <div class="big">12 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:87%"></div></div>
+          <div class="sub">78 of 90 min used</div>
+        </div>
+        <div class="meter">
+          <div class="label">This week (resets Monday 4 AM)</div>
+          <div class="big">3 h 50 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:62%"></div></div>
+          <div class="sub">6 h 10 min of 10 h used</div>
+        </div>
+      </div>
+      <section>
+        <h2>Extend tonight</h2>
+        <div class="editor">
+          <div class="line"><span>Finish your round:</span><button class="">10 min</button><button class="primary">20 min</button><button class="">30 min</button></div>
+          <div class="verdict wait">Adds 20 min to tonight (limit becomes 1 h 50 min). Up to 40 min comes off this week, because time past tonight's limit counts double.</div>
+          <div class="line"><button class="primary">Extend</button></div>
+        </div>
+        <p class="note">Once per night, in the last 30 minutes before tonight's limit.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>2. After pressing Extend</b>
+      <span class="rule">Rule: the answer shows green on one line; tonight's limit is raised by the chosen minutes; the section then says the extension is used. Only minutes played past the old limit count double toward the week; unused extension time costs nothing.</span></div>
+    <div class="content">
+      <div class="meters">
+        <div class="meter">
+          <div class="label">Tonight (weeknight, ends 4 AM)</div>
+          <div class="big">32 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:71%"></div></div>
+          <div class="sub">78 of 110 min used (20 min extension)</div>
+        </div>
+        <div class="meter">
+          <div class="label">This week (resets Monday 4 AM)</div>
+          <div class="big">3 h 50 min <small>left</small></div>
+          <div class="track"><div class="fill" style="width:62%"></div></div>
+          <div class="sub">6 h 10 min of 10 h used (past the old limit counts double)</div>
+        </div>
+      </div>
+      <section>
+        <h2>Extend tonight</h2>
+        <div class="verdict now">Applied now. Tonight ends 20 min later (limit 1 h 50 min).</div>
+        <p class="note">Extension used tonight: 20 min. Only the minutes you actually play past the old limit are counted double.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="window">
+    <div class="cardhead"><b>3. When Extend is not available (three cases)</b>
+      <span class="rule">Proposed: the section is always shown and the buttons are greyed with the reason underneath, so you always know where it is. Case 1: earlier than 30 minutes before the limit. Case 2: already used tonight. Case 3: not enough week left for the longer choices.</span></div>
+    <div class="content">
+      <section>
+        <h2>Extend tonight</h2>
+        <div class="editor"><div class="line"><span>Finish your round:</span><button class="" disabled>10 min</button><button class="" disabled>20 min</button><button class="" disabled>30 min</button></div></div>
+        <p class="note">Extend is available in the last 30 minutes before tonight's limit.</p>
+      </section>
+      <section>
+        <h2>Extend tonight</h2>
+        <div class="editor"><div class="line"><span>Finish your round:</span><button class="" disabled>10 min</button><button class="" disabled>20 min</button><button class="" disabled>30 min</button></div></div>
+        <p class="note">Extension used tonight: 20 min.</p>
+      </section>
+      <section>
+        <h2>Extend tonight</h2>
+        <div class="editor"><div class="line"><span>Finish your round:</span><button class="">10 min</button><button class="">20 min</button><button class="" disabled>30 min</button></div></div>
+        <p class="note">Not enough time left this week.</p>
+      </section>
+    </div>
+  </div>
+
+</div>

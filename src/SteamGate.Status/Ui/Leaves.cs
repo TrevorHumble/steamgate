@@ -143,7 +143,7 @@ internal sealed class TextBlock : Piece, IMeasured, IBaseline
 /// <summary>A button in the approved look: border, rounded corners, an accent border on hover, a filled primary form, half see-through when disabled, and a focus ring outside the border.</summary>
 internal sealed class FlatButton : Pressable, IMeasured, IBaseline
 {
-    private readonly bool _primary;
+    private bool _primary;
     private string _label;
 
     public FlatButton(Look look, string label, bool primary = false)
@@ -152,6 +152,20 @@ internal sealed class FlatButton : Pressable, IMeasured, IBaseline
         _primary = primary;
         _label = label;
         Font = look.Body(StatusStyle.ButtonFont);
+    }
+
+    /// <summary>True for the filled, accent look. It can change after the button is built (the picked length of a choice).</summary>
+    public bool Primary
+    {
+        get => _primary;
+        set
+        {
+            if (_primary != value)
+            {
+                _primary = value;
+                Invalidate();
+            }
+        }
     }
 
     public string Label

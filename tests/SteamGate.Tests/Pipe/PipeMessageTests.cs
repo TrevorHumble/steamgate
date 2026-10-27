@@ -226,4 +226,32 @@ public sealed class PipeMessageTests
     {
         Assert.Null(PipeMessage.Parse(line));
     }
+
+    [Fact]
+    public void ExtendMessageRoundTrips()
+    {
+        const string line = """{"type":"extend","requestId":"s7","minutes":20}""";
+        var message = new ExtendMessage("s7", 20);
+
+        Assert.Equal(line, message.Serialize());
+        Assert.Equal((line + "\n"), System.Text.Encoding.UTF8.GetString(message.ToLine()));
+        Assert.Equal(message, PipeMessage.Parse(line));
+
+        // The length is not checked here: the service answers a wrong one with "Not allowed." instead of dropping the connection.
+        Assert.Equal(new ExtendMessage("s7", 25), PipeMessage.Parse("""{"type":"extend","requestId":"s7","minutes":25}"""));
+    }
+
+    [Theory]
+    [InlineData("""{"type":"extend","minutes":20}""")]
+    [InlineData("""{"type":"extend","requestId":7,"minutes":20}""")]
+    [InlineData("""{"type":"extend","requestId":"s7"}""")]
+    [InlineData("""{"type":"extend","requestId":"s7","minutes":"20"}""")]
+    [InlineData("""{"type":"extend","requestId":"s7","minutes":20.5}""")]
+    [InlineData("""{"type":"extend","requestId":"s7","minutes":20.0}""")]
+    [InlineData("""{"type":"extend","requestId":"s7","minutes":null}""")]
+    [InlineData("""{"type":"extend","requestId":"s7","minutes":3000000000}""")]
+    public void BadExtendIsNull(string line)
+    {
+        Assert.Null(PipeMessage.Parse(line));
+    }
 }

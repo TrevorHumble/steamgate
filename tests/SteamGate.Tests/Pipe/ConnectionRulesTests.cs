@@ -25,7 +25,7 @@ public sealed class ConnectionRulesTests
     }
 
     [Fact]
-    public void AfterHelloClientsMaySendOnlyRequestAndCancel()
+    public void AfterHelloClientsMaySendOnlyRequestCancelAndExtend()
     {
         Assert.True(ConnectionRules.DropsOnClientMessage(new WarnMessage(1)));
         Assert.True(ConnectionRules.DropsOnClientMessage(new CloseMessage("g", "g", [])));
@@ -103,5 +103,18 @@ public sealed class ConnectionRulesTests
     public void LimitIsEightClients()
     {
         Assert.Equal(8, ConnectionRules.MaxClients);
+    }
+
+    [Fact]
+    public void ExtendIsAllowedAfterHello()
+    {
+        Assert.False(ConnectionRules.DropsOnClientMessage(new ExtendMessage("s1", 20)));
+        Assert.False(ConnectionRules.DropsOnClientMessage(new ExtendMessage(new string('a', 64), 20)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new ExtendMessage(new string('a', 65), 20)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(Status.StateFixtures.State()));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new ReplyMessage("r", true, "x", null)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new WarnMessage(1)));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new CloseMessage("g", "g", [])));
+        Assert.True(ConnectionRules.DropsOnClientMessage(new HelloMessage("status")));
     }
 }

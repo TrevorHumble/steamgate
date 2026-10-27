@@ -187,4 +187,24 @@ public sealed class StatusStateTests
         Assert.Equal(["ok", pair], state.Addable.Select(entry => entry.Folder));
         Assert.NotNull(PipeMessage.Parse(state.Serialize()));
     }
+
+    [Fact]
+    public void ExtensionMinutesFromTally()
+    {
+        var withExtension = Snapshot() with
+        {
+            TonightLimitMinutes = 110,
+            Tally = new Tally(new DateOnly(2026, 10, 20), 2820, new DateOnly(2026, 10, 19), 22200, null, new NightExtension(new DateOnly(2026, 10, 20), 20)),
+        };
+
+        var state = StatusState.From(withExtension, Tuesday)!;
+        Assert.Equal(20, state.ExtensionMinutes);
+        Assert.Equal(110, state.TonightLimitMinutes);
+
+        var nextNight = StatusState.From(withExtension, new DateTime(2026, 10, 21, 21, 14, 0))!;
+        Assert.Equal(0, nextNight.ExtensionMinutes);
+        Assert.Equal(0, nextNight.NightSeconds);
+
+        Assert.Equal(0, StatusState.From(Snapshot(), Tuesday)!.ExtensionMinutes);
+    }
 }

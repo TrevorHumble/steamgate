@@ -265,4 +265,12 @@ public sealed class ChangeLogTests
         Assert.Equal("skipped unknown", ChangeLog.Skipped(new PendingChange(IdNumber(1), "x\ny", null, null, null, null, Now, 0)));
         Assert.Equal("applied unknown", ChangeLog.Applied(new PendingChange(IdNumber(1), "x\ny", null, null, null, null, Now, 0)));
     }
+
+    [Fact]
+    public void ExtendLog()
+    {
+        Assert.Equal("extend applied pid=12 session=1", ChangeLog.Extend("applied", 12, 1));
+        Assert.Equal("extend refused pid=12 session=1", ChangeLog.Extend("refused", 12, 1));
+        Assert.Equal("extend busy pid=12 session=1", ChangeLog.Extend(ChangeLog.Busy, 12, 1));
+    }
 }

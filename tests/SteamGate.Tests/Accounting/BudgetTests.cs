@@ -62,7 +62,7 @@ public sealed class BudgetTests
 
         Assert.Equal(10800, Budget.RemainingSeconds(tally, Defaults, local));
 
-        var ticked = Accountant.Tick(tally, local, DateTime.UtcNow, TimeSpan.FromSeconds(5), Accountant.MaxTickStep, []);
+        var ticked = Accountant.Tick(tally, local, DateTime.UtcNow, TimeSpan.FromSeconds(5), Accountant.MaxTickStep, [], GateSettings.Defaults);
         Assert.Equal(new DateOnly(2026, 10, 23), ticked.Night);
         Assert.Equal(0, ticked.NightSeconds);
     }
@@ -73,5 +73,54 @@ public sealed class BudgetTests
         var tally = new Tally(new DateOnly(2026, 10, 25), 0, new DateOnly(2026, 10, 19), 36000, null);
 
         Assert.Equal(5400, Budget.RemainingSeconds(tally, Defaults, new DateTime(2026, 10, 26, 22, 0, 0)));
+    }
+
+    [Fact]
+    public void ExtensionRaisesTheLimitAndTheWeekCostsDouble()
+    {
+        var monday = new DateOnly(2026, 10, 26);
+        var local = new DateTime(2026, 10, 26, 21, 0, 0);
+
+        Tally Of(double night, double week, int minutes) => new(monday, night, monday, week, null, new NightExtension(monday, minutes));
+
+        var twenty = Of(4680, 22200, 20);
+        Assert.Equal(110, Budget.TonightLimitMinutes(twenty, Defaults, local));
+        Assert.Equal(1920, Budget.RemainingSeconds(twenty, Defaults, local));
+        Assert.Equal(900, Budget.RemainingSeconds(Of(5700, 22200, 20), Defaults, local));
+        Assert.Equal(300, Budget.RemainingSeconds(Of(5400, 35400, 20), Defaults, local));
+        Assert.Equal(250, Budget.RemainingSeconds(Of(5300, 35600, 30), Defaults, local));
+        Assert.Equal(300, Budget.RemainingSeconds(Of(4800, 35700, 20), Defaults, local));
+
+        var plain = new Tally(monday, 4680, monday, 22200, null);
+        Assert.Equal(90, Budget.TonightLimitMinutes(plain, Defaults, local));
+        Assert.Equal(720, Budget.RemainingSeconds(plain, Defaults, local));
+
+        var yesterday = new Tally(new DateOnly(2026, 10, 25), 4680, monday, 22200, null, new NightExtension(new DateOnly(2026, 10, 25), 20));
+        Assert.Equal(90, Budget.TonightLimitMinutes(yesterday, Defaults, local));
+    }
+
+    [Fact]
+    public void AnExtensionOfZeroMinutesCountsAsNoneEverywhere()
+    {
+        var monday = new DateOnly(2026, 10, 26);
+        var local = new DateTime(2026, 10, 26, 21, 0, 0);
+        var zero = new Tally(monday, 5400, monday, 10000, null, new NightExtension(monday, 0));
+        var none = zero with { Extension = null };
+
+        Assert.False(zero.HasExtension);
+        Assert.Equal(0, zero.ExtensionMinutes);
+        Assert.Equal(Budget.RemainingSeconds(none, Defaults, local), Budget.RemainingSeconds(zero, Defaults, local));
+        Assert.Equal(Budget.TonightLimitMinutes(none, Defaults, local), Budget.TonightLimitMinutes(zero, Defaults, local));
+        var ticked = Accountant.Tick(zero, local, DateTime.UtcNow, TimeSpan.FromSeconds(15), Accountant.MaxTickStep, [new SteamGate.Core.Steam.RunningGame("g", "g", [])], Defaults);
+        Assert.Equal(10015, ticked.WeekSeconds);
+    }
+
+    [Fact]
+    public void OriginalLimitSeconds()
+    {
+        Assert.Equal(5400, Budget.OriginalLimitSeconds(Defaults, new DateTime(2026, 10, 26, 21, 0, 0)));
+        Assert.Equal(10800, Budget.OriginalLimitSeconds(Defaults, new DateTime(2026, 10, 30, 21, 0, 0)));
+        Assert.Equal(10800, Budget.OriginalLimitSeconds(Defaults, new DateTime(2026, 10, 31, 2, 0, 0)));
+        Assert.Equal(10800, Budget.OriginalLimitSeconds(Defaults, new DateTime(2026, 10, 26, 3, 0, 0)));
     }
 }

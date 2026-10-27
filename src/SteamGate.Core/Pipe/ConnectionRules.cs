@@ -25,13 +25,14 @@ public static class ConnectionRules
     public static HelloMessage? AcceptedHello(PipeMessage? first) => first as HelloMessage;
 
     /// <summary>
-    /// After the hello a client may send only request and cancel, each with a requestId of at most 64 characters. A warn, a close, a reply, a state
+    /// After the hello a client may send only request, cancel, and extend, each with a requestId of at most 64 characters. A warn, a close, a reply, a state
     /// (the server alone sends those), and a second hello end the connection.
     /// </summary>
     public static bool DropsOnClientMessage(PipeMessage message) => message switch
     {
         RequestMessage request => request.RequestId.Length > MaxRequestIdLength,
         CancelMessage cancel => cancel.RequestId.Length > MaxRequestIdLength,
+        ExtendMessage extend => extend.RequestId.Length > MaxRequestIdLength,
         _ => true,
     };
 

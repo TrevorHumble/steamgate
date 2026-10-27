@@ -1,8 +1,9 @@
+using SteamGate.Core.Extend;
 using SteamGate.Core.Rules;
 
 namespace SteamGate.Core.Pipe;
 
-/// <summary>Turns pipe messages into engine input and engine outcomes into pipe replies, so the engine itself never reads a pipe message. (SettingsCommand still carries the connection's OutboundQueue.)</summary>
+/// <summary>Turns pipe messages into engine input and engine outcomes into pipe replies, and builds the reply to an extend. The engine itself never reads a pipe message. (A WorkerCommand still carries the connection's OutboundQueue.)</summary>
 public static class ChangeMessages
 {
     /// <summary>
@@ -23,6 +24,10 @@ public static class ChangeMessages
     /// <summary>The reply for an outcome. When the save failed and the outcome changed something, the text says it is held in memory.</summary>
     public static ReplyMessage Reply(string requestId, ChangeOutcome outcome, bool saveFailed) =>
         new(requestId, outcome.Ok, saveFailed && outcome.Changed ? outcome.Text + ChangeReply.SaveFailedSuffix : outcome.Text, outcome.PendingId);
+
+    /// <summary>The reply for an extend. Ok only when it applied; when the tally save failed and it applied, the text says it is held in memory.</summary>
+    public static ReplyMessage ExtendReply(string requestId, ExtendOutcome outcome, bool saveFailed) =>
+        new(requestId, outcome.Applied, saveFailed && outcome.Applied ? outcome.Text + ChangeReply.SaveFailedSuffix : outcome.Text, null);
 
     /// <summary>The reply for a command the server could not queue or could not read.</summary>
     public static ReplyMessage Failure(string requestId, string text) => new(requestId, false, text, null);
